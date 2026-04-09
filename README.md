@@ -2,6 +2,85 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to Claude, and have Claude pick up the next workable task automatically.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    User([👤 You]) -->|"queue tasks"| Claude[🤖 Claude Code]
+    Claude -->|"next task?"| TM[Task Manager MCP]
+    Claude <-->|"vault ops"| OM[Obsidian MCP]
+    TM -->|"task files"| Vault[(📚 Vault<br/>tasks/)]
+    OM -->|"notes"| Vault
+    TM -.->|"dependency graph<br/>+ priority sort"| Resolver{{Resolver}}
+    Resolver -.->|"workable task"| Claude
+
+    style User fill:#e1f5ff
+    style Claude fill:#fff4e1
+    style TM fill:#e8f5e9
+    style OM fill:#f3e5f5
+    style Vault fill:#fce4ec
+    style Resolver fill:#fff3e0
+```
+
+## Status State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Backlog: create_task
+    Backlog --> Ready: update_task
+    Backlog --> Cancelled
+    Ready --> InProgress: start_task<br/>(deps satisfied)
+    Ready --> Cancelled
+    InProgress --> Done: complete_task
+    InProgress --> Blocked: block_task<br/>(external blocker)
+    Blocked --> Ready: blocker resolved
+    Blocked --> Cancelled
+    Done --> [*]
+    Cancelled --> [*]
+
+    note right of Ready
+        next_task picks
+        from here
+    end note
+    note right of InProgress
+        Claude is
+        working on it
+    end note
+```
+
+## Dependency Resolution
+
+```mermaid
+flowchart TD
+    Start([Claude: what's next?]) --> Filter1[Get all tasks<br/>status = Ready]
+    Filter1 --> Filter2[Filter by assignee]
+    Filter2 --> Loop{For each task}
+    Loop --> Check[Check blocked_by]
+    Check --> AllDone{All blockers<br/>Done or Cancelled?}
+    AllDone -->|No| Skip[❌ Skip]
+    AllDone -->|Yes| Add[✅ Add to candidates]
+    Skip --> Loop
+    Add --> Loop
+    Loop -->|done| Sort[Sort by:<br/>1. Priority P1→P4<br/>2. Due date<br/>3. Created date]
+    Sort --> Return([Return top task])
+
+    style Start fill:#e1f5ff
+    style Return fill:#c8e6c9
+    style Skip fill:#ffcdd2
+    style Add fill:#c8e6c9
+```
+
+## Example Dependency Tree
+
+```
+T-042: Implement rate limiting (Ready, P2)
+├── [✓] T-038: Refactor auth middleware (Done)
+└── [ ] T-040: Upgrade Redis (In Progress)
+    └── [✓] T-039: Backup current Redis data (Done)
+```
+
+T-042 is blocked because T-040 is still in progress. `next_task` will skip it and return T-040 first.
+
 ## Why
 
 Task lists alone aren't enough — you need to know **what to work on first**. This MCP gives you:
