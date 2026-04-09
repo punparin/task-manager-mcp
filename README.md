@@ -6,77 +6,83 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ta
 
 ```mermaid
 flowchart LR
-    User([👤 You]) -->|"queue tasks"| Claude[🤖 Claude Code]
-    Claude -->|"next task?"| TM[Task Manager MCP]
-    Claude <-->|"vault ops"| OM[Obsidian MCP]
-    TM -->|"task files"| Vault[(📚 Vault<br/>tasks/)]
-    OM -->|"notes"| Vault
-    TM -.->|"dependency graph<br/>+ priority sort"| Resolver{{Resolver}}
-    Resolver -.->|"workable task"| Claude
+    User[You]
+    Claude[Claude Code]
+    TM[Task Manager MCP]
+    OM[Obsidian MCP]
+    Vault[(Vault tasks/)]
 
-    style User fill:#e1f5ff
-    style Claude fill:#fff4e1
-    style TM fill:#e8f5e9
-    style OM fill:#f3e5f5
-    style Vault fill:#fce4ec
-    style Resolver fill:#fff3e0
+    User --> Claude
+    Claude --> TM
+    Claude --> OM
+    TM --> Vault
+    OM --> Vault
+
+    classDef user fill:#e1f5ff,stroke:#333
+    classDef ai fill:#fff4e1,stroke:#333
+    classDef mcp fill:#e8f5e9,stroke:#333
+    classDef store fill:#fce4ec,stroke:#333
+
+    class User user
+    class Claude ai
+    class TM,OM mcp
+    class Vault store
 ```
 
 ## Status State Machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Backlog: create_task
-    Backlog --> Ready: update_task
+    [*] --> Backlog
+    Backlog --> Ready
     Backlog --> Cancelled
-    Ready --> InProgress: start_task<br/>(deps satisfied)
+    Ready --> InProgress
     Ready --> Cancelled
-    InProgress --> Done: complete_task
-    InProgress --> Blocked: block_task<br/>(external blocker)
-    Blocked --> Ready: blocker resolved
+    InProgress --> Done
+    InProgress --> Blocked
+    Blocked --> Ready
     Blocked --> Cancelled
     Done --> [*]
     Cancelled --> [*]
-
-    note right of Ready
-        next_task picks
-        from here
-    end note
-    note right of InProgress
-        Claude is
-        working on it
-    end note
 ```
+
+`next_task` picks from `Ready` only. `start_task` moves to `InProgress`. `complete_task` moves to `Done` and announces unblocked tasks.
 
 ## Dependency Resolution
 
 ```mermaid
 flowchart TD
-    Start([Claude: what's next?]) --> Filter1[Get all tasks<br/>status = Ready]
-    Filter1 --> Filter2[Filter by assignee]
-    Filter2 --> Loop{For each task}
-    Loop --> Check[Check blocked_by]
-    Check --> AllDone{All blockers<br/>Done or Cancelled?}
-    AllDone -->|No| Skip[❌ Skip]
-    AllDone -->|Yes| Add[✅ Add to candidates]
+    Start[Claude asks for next task]
+    Filter1[Get tasks with status = Ready]
+    Filter2[Filter by assignee]
+    Loop{For each task}
+    Check[Check blocked_by tasks]
+    AllDone{All blockers Done or Cancelled?}
+    Skip[Skip this task]
+    Add[Add to candidates]
+    Sort[Sort by priority, due date, created]
+    Return[Return top task]
+
+    Start --> Filter1
+    Filter1 --> Filter2
+    Filter2 --> Loop
+    Loop --> Check
+    Check --> AllDone
+    AllDone -->|No| Skip
+    AllDone -->|Yes| Add
     Skip --> Loop
     Add --> Loop
-    Loop -->|done| Sort[Sort by:<br/>1. Priority P1→P4<br/>2. Due date<br/>3. Created date]
-    Sort --> Return([Return top task])
-
-    style Start fill:#e1f5ff
-    style Return fill:#c8e6c9
-    style Skip fill:#ffcdd2
-    style Add fill:#c8e6c9
+    Loop -->|done| Sort
+    Sort --> Return
 ```
 
 ## Example Dependency Tree
 
 ```
 T-042: Implement rate limiting (Ready, P2)
-├── [✓] T-038: Refactor auth middleware (Done)
+├── [x] T-038: Refactor auth middleware (Done)
 └── [ ] T-040: Upgrade Redis (In Progress)
-    └── [✓] T-039: Backup current Redis data (Done)
+    └── [x] T-039: Backup current Redis data (Done)
 ```
 
 T-042 is blocked because T-040 is still in progress. `next_task` will skip it and return T-040 first.
