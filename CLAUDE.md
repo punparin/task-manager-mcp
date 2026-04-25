@@ -17,7 +17,7 @@ OBSIDIAN_VAULT_PATH=/path/to/vault .venv/bin/python -m task_manager_mcp
 - `task_manager_mcp/server.py` — FastMCP server, tool definitions
 - `task_manager_mcp/tasks.py` — Task dataclass, status/priority enums, file I/O
 - `task_manager_mcp/deps.py` — Dependency resolver, cycle detection, next_task algorithm
-- `task_manager_mcp/vault.py` — Vault adapter (lightweight wrapper for file ops)
+- `task_manager_mcp/explorer/` — FastAPI sidecar serving a drag-and-drop Kanban UI over the same vault. `pip install -e ".[explorer]"` then `python -m task_manager_mcp.explorer --host 0.0.0.0 --port 8765`. Mutations write straight to task frontmatter, so the MCP and the UI share state.
 
 ## Task Format
 Tasks are stored as markdown files in `tasks/` folder of the vault:
