@@ -60,16 +60,8 @@ class TaskCreate(BaseModel):
     body: str = ""
 
 
-def create_app(vault_path: str | Path, vault_name: Optional[str] = None) -> FastAPI:
-    """Build the FastAPI app bound to a vault path. Factored out for tests.
-
-    `vault_name` (optional) is the user-facing vault name registered with
-    Obsidian. When provided, the explorer's "open in Obsidian" URLs use the
-    portable `vault=<name>&file=<rel>` form, which works regardless of where
-    the vault lives on the host (Docker, mobile, etc.). Without it, the URL
-    uses the absolute path of the vault, which only works when the explorer
-    sees the same path Obsidian does.
-    """
+def create_app(vault_path: str | Path) -> FastAPI:
+    """Build the FastAPI app bound to a vault path. Factored out for tests."""
     store = TaskStore(vault_path)
     app = FastAPI(title="Task Manager Explorer", version="0.1.0")
 
@@ -96,7 +88,6 @@ def create_app(vault_path: str | Path, vault_name: Optional[str] = None) -> Fast
         return {
             "ok": True,
             "vault": str(store.vault),
-            "vault_name": vault_name,
             "tasks_dir": str(store.tasks_dir),
             "task_count": len(all_tasks),
             "valid_status": VALID_STATUS,
@@ -178,6 +169,7 @@ def create_app(vault_path: str | Path, vault_name: Optional[str] = None) -> Fast
                     "label": f"{t.id}\n{t.title[:30]}",
                     "status": t.status,
                     "priority": t.priority,
+                    "is_unblocked": is_unblocked(t, all_tasks),
                 }
             }
             for t in all_list
@@ -305,16 +297,6 @@ def main():
         default=os.environ.get("OBSIDIAN_VAULT_PATH"),
         help="Vault path (defaults to $OBSIDIAN_VAULT_PATH)",
     )
-    parser.add_argument(
-        "--vault-name",
-        default=os.environ.get("OBSIDIAN_VAULT_NAME"),
-        help=(
-            "Obsidian-registered vault name (defaults to $OBSIDIAN_VAULT_NAME). "
-            "When set, 'open in Obsidian' uses the portable vault=<name>&file=<rel> URL "
-            "form — required when --vault is a Docker mount or any path that differs "
-            "from what the host's Obsidian sees."
-        ),
-    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
@@ -325,14 +307,8 @@ def main():
 
     import uvicorn
 
-    app = create_app(args.vault, vault_name=args.vault_name)
-    logger.info(
-        "explorer serving %s (vault_name=%s) on http://%s:%d",
-        args.vault,
-        args.vault_name or "<unset, falling back to absolute path>",
-        args.host,
-        args.port,
-    )
+    app = create_app(args.vault)
+    logger.info("explorer serving %s on http://%s:%d", args.vault, args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

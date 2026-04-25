@@ -51,16 +51,6 @@ def test_health(client):
     assert body["ok"] is True
     assert body["task_count"] == 5
     assert "Backlog" in body["valid_status"]
-    # vault_name is exposed for the frontend's URL builder; null when unset
-    assert body["vault_name"] is None
-
-
-def test_health_with_vault_name(vault):
-    """When vault_name is passed, /api/health surfaces it so the frontend
-    can build portable obsidian://open?vault=<name>&file=<rel> URLs."""
-    app = create_app(vault, vault_name="MyVault")
-    res = TestClient(app).get("/api/health")
-    assert res.json()["vault_name"] == "MyVault"
 
 
 def test_list_tasks_returns_all_with_payload_fields(client):
@@ -166,6 +156,10 @@ def test_graph_shape(client):
     assert len(body["nodes"]) == 5
     # T-004 → T-002 is the only edge
     assert any(e["data"]["source"] == "T-004" and e["data"]["target"] == "T-002" for e in body["edges"])
+    # Each node carries is_unblocked so the frontend can color blocked-by-deps red
+    by_id = {n["data"]["id"]: n["data"] for n in body["nodes"]}
+    assert by_id["T-003"]["is_unblocked"] is True   # Ready, no blockers
+    assert by_id["T-004"]["is_unblocked"] is False  # Ready, blocked by T-002 (In Progress)
 
 
 def test_blocked_endpoint_returns_ready_blocked(client):
