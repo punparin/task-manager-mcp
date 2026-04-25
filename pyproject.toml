@@ -1,6 +1,6 @@
 [project]
 name = "task-manager-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Task management MCP for Claude Code with dependency resolution, on top of Obsidian"
 requires-python = ">=3.11"
 dependencies = [
