@@ -232,18 +232,34 @@ vault, same `tasks/` folder, same frontmatter — Explorer just renders it.
 ```bash
 pip install -e ".[explorer]"
 OBSIDIAN_VAULT_PATH=/path/to/vault \
+OBSIDIAN_VAULT_NAME=MyVault \
   python -m task_manager_mcp.explorer --host 0.0.0.0 --port 8765
 ```
 
 Then open `http://<host>:8765`. From a laptop/phone, expose via SSH tunnel
 or Tailscale.
 
+`OBSIDIAN_VAULT_NAME` is the name of the vault as registered with Obsidian
+(see Obsidian → Settings → About). When set, the "open in Obsidian" link
+on each card uses the portable `obsidian://open?vault=<name>&file=<rel>`
+form — required when the explorer's vault path differs from what the
+host's Obsidian sees (Docker mounts, remote vaults via SSHFS, etc.).
+Without it, the explorer falls back to the absolute-path form which only
+works when the explorer and Obsidian see the same filesystem.
+
 ### Docker
 
 ```bash
 docker pull ghcr.io/punparin/task-manager-mcp-explorer:latest
-docker run -p 8765:8765 -v /path/to/vault:/vault ghcr.io/punparin/task-manager-mcp-explorer:latest
+docker run -p 8765:8765 \
+  -e OBSIDIAN_VAULT_NAME=MyVault \
+  -v /path/to/vault:/vault \
+  ghcr.io/punparin/task-manager-mcp-explorer:latest
 ```
+
+Setting `OBSIDIAN_VAULT_NAME` is **required** for Docker — inside the
+container the vault lives at `/vault`, but Obsidian on the host needs the
+vault name to find the file.
 
 ### Endpoints
 

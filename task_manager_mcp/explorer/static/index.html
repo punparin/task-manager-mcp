@@ -281,6 +281,7 @@
       view: "board",
       cy: null,
       vaultPath: null,
+      vaultName: null,
       isDragging: false,
       autoRefresh: true,
       focusTaskId: null,
@@ -334,7 +335,9 @@
       if (!res.ok) return;
       const h = await res.json();
       state.vaultPath = h.vault;
-      $("#vault-info").textContent = `${h.vault} · ${h.task_count} tasks`;
+      state.vaultName = h.vault_name || null;
+      const label = state.vaultName ? `${state.vaultName} (${h.vault})` : h.vault;
+      $("#vault-info").textContent = `${label} · ${h.task_count} tasks`;
     }
 
     function openInObsidian(taskId) {
@@ -342,12 +345,53 @@
         toast("vault path not loaded yet", "error");
         return;
       }
-      const path = `${state.vaultPath}/tasks/${taskId}.md`;
-      const url = `obsidian://open?path=${encodeURIComponent(path)}`;
-      // target=_top breaks out of an Obsidian webview iframe so the
-      // protocol handler reaches the host app instead of the iframe.
-      const target = window.top !== window.self ? window.top : window;
-      target.location.href = url;
+      // Prefer vault=<name>&file=<rel> — works regardless of where the vault
+      // lives on the host (Docker mount, mobile, etc.). Fall back to the
+      // absolute path form only when no vault name is configured.
+      let url;
+      if (state.vaultName) {
+        const rel = `tasks/${taskId}.md`;
+        url = `obsidian://open?vault=${encodeURIComponent(state.vaultName)}&file=${encodeURIComponent(rel)}`;
+      } else {
+        const path = `${state.vaultPath}/tasks/${taskId}.md`;
+        url = `obsidian://open?path=${encodeURIComponent(path)}`;
+      }
+      console.log("openInObsidian:", taskId, "→", url);
+      toast(`open ${taskId} in obsidian`, "success");
+
+      // Webview environments differ; try several strategies in order of
+      // preference. First one that doesn't throw or get blocked wins.
+
+      // 1. Top-frame nav — works for same-origin iframes with
+      // allow-top-navigation. Throws a SecurityError in cross-origin frames.
+      try {
+        if (window.top && window.top !== window.self) {
+          window.top.location.href = url;
+          return;
+        }
+      } catch (e) {
+        console.warn("top.location.href blocked:", e && e.message);
+      }
+
+      // 2. Open in a new browsing context. Most webviews route the custom
+      // protocol to the OS handler when window.open is invoked from a click.
+      try {
+        const w = window.open(url, "_blank");
+        if (w) return;
+      } catch (e) {
+        console.warn("window.open blocked:", e && e.message);
+      }
+
+      // 3. Last resort: navigate the current frame. The browser will hand
+      // off the obsidian:// URL to the OS handler before any page-load
+      // failure renders, so the iframe usually stays on the explorer.
+      try {
+        window.location.href = url;
+        return;
+      } catch (e) {
+        console.error("all openInObsidian strategies failed:", e);
+        toast("could not open in obsidian (see console)", "error");
+      }
     }
 
     function dueClass(due) {

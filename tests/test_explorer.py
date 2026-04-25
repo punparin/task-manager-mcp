@@ -51,6 +51,16 @@ def test_health(client):
     assert body["ok"] is True
     assert body["task_count"] == 5
     assert "Backlog" in body["valid_status"]
+    # vault_name is exposed for the frontend's URL builder; null when unset
+    assert body["vault_name"] is None
+
+
+def test_health_with_vault_name(vault):
+    """When vault_name is passed, /api/health surfaces it so the frontend
+    can build portable obsidian://open?vault=<name>&file=<rel> URLs."""
+    app = create_app(vault, vault_name="MyVault")
+    res = TestClient(app).get("/api/health")
+    assert res.json()["vault_name"] == "MyVault"
 
 
 def test_list_tasks_returns_all_with_payload_fields(client):
