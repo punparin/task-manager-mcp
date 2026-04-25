@@ -211,17 +211,67 @@ Claude: [my_tasks]
         In progress: T-038 (Refactor middleware)
 ```
 
+## Explorer (web UI)
+
+A FastAPI sidecar serves a Kanban board over HTTP — useful when you mostly
+SSH to a Pi and want a real GUI for triage instead of slash commands. Same
+vault, same `tasks/` folder, same frontmatter — Explorer just renders it.
+
+### Features
+
+- Drag-and-drop between lanes (Backlog → Ready → In Progress → Blocked → Done → Cancelled)
+- Status changes write directly to task frontmatter; the MCP and the UI agree on one source of truth
+- Dependency-aware: dragging a Ready-but-blocked card to **In Progress** is rejected with `409` and the unfinished blockers listed
+- Completing a task auto-stamps `completed: <today>` and surfaces newly unblocked tasks as a toast
+- `next_task` is highlighted with a green border so you always see what's up next
+- Dep graph view (Cytoscape.js) — click a node to open the side panel
+- Filters: assignee, priority, project, area, hide done/cancelled
+
+### Run
+
+```bash
+pip install -e ".[explorer]"
+OBSIDIAN_VAULT_PATH=/path/to/vault \
+  python -m task_manager_mcp.explorer --host 0.0.0.0 --port 8765
+```
+
+Then open `http://<host>:8765`. From a laptop/phone, expose via SSH tunnel
+or Tailscale.
+
+### Docker
+
+```bash
+docker pull ghcr.io/punparin/task-manager-mcp-explorer:latest
+docker run -p 8765:8765 -v /path/to/vault:/vault ghcr.io/punparin/task-manager-mcp-explorer:latest
+```
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Vault path, task count, valid enums |
+| `GET` | `/api/tasks` | List with filters: `?status=&assignee=&priority=&project=&area=`. Returns `next_task_id` |
+| `GET` | `/api/tasks/{id}` | Full detail: body, dep tree, computed `is_unblocked`, `unfinished_blockers`, `dep_count` |
+| `PATCH` | `/api/tasks/{id}/status` | Body `{status, completion_notes?}`. Validates deps when target is `In Progress`. Returns `{task, old_status, unblocked}` |
+| `PATCH` | `/api/tasks/{id}` | Update fields (title, priority, due, etc.) |
+| `POST` | `/api/tasks` | Create task |
+| `GET` | `/api/next?assignee=` | Same logic as MCP `next_task` |
+| `GET` | `/api/blocked` | Ready tasks waiting on unfinished deps |
+| `GET` | `/api/graph` | Cytoscape-shaped `{nodes, edges}` for the dep graph |
+
 ## Architecture
 
 - `task_manager_mcp/server.py` — FastMCP server, 13 tools
 - `task_manager_mcp/tasks.py` — Task dataclass, file I/O
 - `task_manager_mcp/deps.py` — Dependency resolver, cycle detection, next_task algorithm
+- `task_manager_mcp/explorer/` — FastAPI sidecar (web UI + REST)
 
 Tasks are stored in the same vault as your Obsidian notes — they coexist with [obsidian-mcp](https://github.com/punparin/obsidian-mcp) for full vault + task workflow.
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,explorer]"
 pytest tests/ -v
+ruff check .
 ```
