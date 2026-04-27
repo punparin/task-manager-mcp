@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..checklist import task_to_dict as _task_to_dict
+from ..checklist import tick as _tick
 from ..deps import blocked_tasks as _blocked_tasks
 from ..deps import is_unblocked, what_unblocks
 from ..deps import next_task as _next_task
@@ -34,6 +36,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 class StatusUpdate(BaseModel):
     status: str
     completion_notes: str = ""
+
+
+class ChecklistTick(BaseModel):
+    checked: bool = True
 
 
 class TaskUpdate(BaseModel):
@@ -68,7 +74,9 @@ def create_app(vault_path: str | Path) -> FastAPI:
     # ── Helpers ────────────────────────────────────────────────────────
 
     def _task_payload(task, all_tasks: dict) -> dict:
-        d = task.to_dict()
+        # Pull `progress` from the body for free; helper omits the key when
+        # there are no checkboxes so cards stay clean.
+        d = _task_to_dict(task)
         unblocked = is_unblocked(task, all_tasks)
         unfinished = [
             dep
@@ -234,6 +242,24 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "old_status": old_status,
             "unblocked": unblocked_ids,
         }
+
+    @app.patch("/api/tasks/{task_id}/checklist/{index}")
+    def tick_checklist(task_id: str, index: int, payload: ChecklistTick):
+        """Flip the n-th checkbox in the body (1-based). Mirrors MCP tick_item."""
+        try:
+            task = store.get(task_id)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Task not found: {task_id}")
+        try:
+            new_body, _progress = _tick(task.body, index, payload.checked)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        task.body = new_body
+        store.save(task)
+        all_tasks = {t.id: t for t in store.all()}
+        out = _task_payload(task, all_tasks)
+        out["body"] = task.body
+        return out
 
     @app.patch("/api/tasks/{task_id}")
     def update_task(task_id: str, payload: TaskUpdate):
