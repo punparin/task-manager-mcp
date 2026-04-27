@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from datetime import date
+from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +32,14 @@ logging.basicConfig(
 logger = logging.getLogger("task_manager_mcp.explorer")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _package_version() -> str:
+    """Resolve installed package version, fall back to 'dev' for non-installed checkouts."""
+    try:
+        return metadata.version("task-manager-mcp")
+    except metadata.PackageNotFoundError:
+        return "dev"
 
 
 class StatusUpdate(BaseModel):
@@ -101,6 +110,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "valid_status": VALID_STATUS,
             "valid_priority": VALID_PRIORITY,
             "valid_assignee": VALID_ASSIGNEE,
+            "version": _package_version(),
         }
 
     @app.get("/")
