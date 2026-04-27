@@ -452,6 +452,15 @@
 
     function render() {
       const board = $("#board");
+      // Auto-refresh re-renders the board every poll, which destroys the
+      // independently-scrolling .lane-body nodes (overflow-y: auto) and the
+      // board's own horizontal scroll. Capture both before we wipe so the
+      // user doesn't get yanked back to the top mid-scroll.
+      const savedLaneScroll = {};
+      for (const body of $$(".lane-body")) {
+        savedLaneScroll[body.getAttribute("data-lane-body")] = body.scrollTop;
+      }
+      const savedBoardScrollLeft = board.scrollLeft;
       board.innerHTML = "";
       let visible = state.tasks;
       if (state.filters.hideDone) visible = visible.filter((t) => t.status !== "Done");
@@ -498,6 +507,13 @@
           </div>`;
         board.insertAdjacentHTML("beforeend", html);
       }
+
+      // Restore scroll positions on the freshly-built nodes.
+      for (const body of $$(".lane-body")) {
+        const prev = savedLaneScroll[body.getAttribute("data-lane-body")];
+        if (prev) body.scrollTop = prev;
+      }
+      board.scrollLeft = savedBoardScrollLeft;
 
       attachDragHandlers();
       attachClickHandlers();
