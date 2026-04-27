@@ -41,7 +41,33 @@
       flex-wrap: wrap;
     }
     header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+    header h1 .version {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+      opacity: 0.7;
+      margin-left: 4px;
+    }
     .vault-info { color: var(--muted); font-size: 12px; }
+    .search-input {
+      flex: 1;
+      max-width: 300px;
+      min-width: 160px;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    .search-input::placeholder { color: var(--muted); }
+    .search-input:focus { outline: none; border-color: var(--accent); }
+    .search-count {
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
     .tabs { display: flex; gap: 4px; }
     .tab {
       padding: 6px 12px;
@@ -313,7 +339,7 @@
 </head>
 <body>
   <header>
-    <h1>Task Manager Explorer</h1>
+    <h1>Task Manager Explorer<span class="version" id="version"></span></h1>
     <div class="vault-info" id="vault-info">…</div>
     <div class="tabs">
       <div class="tab active" data-view="board">Board</div>
@@ -322,6 +348,14 @@
   </header>
 
   <div class="filters">
+    <input
+      id="filter-search"
+      class="search-input"
+      type="search"
+      placeholder="search id / title / tag (e.g. T-042)"
+      autocomplete="off"
+    />
+    <span class="search-count" id="search-count" style="display:none"></span>
     <label>assignee
       <select id="filter-assignee">
         <option value="">all</option>
@@ -368,6 +402,10 @@
     const LANES = ["Backlog", "Ready", "In Progress", "Blocked", "Done", "Cancelled"];
 
     const POLL_INTERVAL_MS = 5000;
+    // How long after the user's last scroll/keystroke we treat them as "still
+    // interacting" — auto-refresh skips during this window so a poll never
+    // yanks the page mid-scroll.
+    const INTERACTION_QUIET_MS = 1000;
     let state = {
       tasks: [],
       nextTaskId: null,
@@ -377,16 +415,22 @@
       isDragging: false,
       autoRefresh: true,
       focusTaskId: null,
+      lastInteractionAt: 0,
       filters: {
         assignee: "",
         priority: "",
         project: "",
         area: "",
+        search: "",
         hideDone: false,
         hideCancelled: false,
         doneDays: 7,
       },
     };
+
+    function markInteraction() {
+      state.lastInteractionAt = Date.now();
+    }
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -428,6 +472,7 @@
       const h = await res.json();
       state.vaultPath = h.vault;
       $("#vault-info").textContent = `${h.vault} · ${h.task_count} tasks`;
+      if (h.version) $("#version").textContent = `v${h.version}`;
     }
 
     function dueClass(due) {
@@ -507,6 +552,22 @@
       const savedBoardScrollLeft = board.scrollLeft;
       board.innerHTML = "";
       let visible = state.tasks;
+      const search = (state.filters.search || "").trim().toLowerCase();
+      if (search) {
+        visible = visible.filter((t) => {
+          // ID first (fastest, most common — "T-42" should jump to T-042).
+          if (t.id.toLowerCase().includes(search)) return true;
+          if ((t.title || "").toLowerCase().includes(search)) return true;
+          if ((t.project || "").toLowerCase().includes(search)) return true;
+          if ((t.area || "").toLowerCase().includes(search)) return true;
+          return (t.tags || []).some((tag) => tag.toLowerCase().includes(search));
+        });
+        const c = $("#search-count");
+        c.style.display = "";
+        c.textContent = `${visible.length} match${visible.length === 1 ? "" : "es"}`;
+      } else {
+        $("#search-count").style.display = "none";
+      }
       if (state.filters.hideDone) visible = visible.filter((t) => t.status !== "Done");
       if (state.filters.hideCancelled) visible = visible.filter((t) => t.status !== "Cancelled");
       // "done within last N days" — apply only if Done is being shown.
@@ -552,12 +613,21 @@
         board.insertAdjacentHTML("beforeend", html);
       }
 
-      // Restore scroll positions on the freshly-built nodes.
-      for (const body of $$(".lane-body")) {
-        const prev = savedLaneScroll[body.getAttribute("data-lane-body")];
-        if (prev) body.scrollTop = prev;
-      }
-      board.scrollLeft = savedBoardScrollLeft;
+      // Restore scroll positions on the freshly-built nodes. Synchronous
+      // assignment first (works in most cases), then re-apply after the
+      // next frame in case a layout pass clamped scrollTop while the new
+      // nodes were still settling — catches the "Done column pops to top"
+      // case where the lane has many cards and Sortable's init touches the
+      // scrollable container.
+      const restoreScroll = () => {
+        for (const body of $$(".lane-body")) {
+          const prev = savedLaneScroll[body.getAttribute("data-lane-body")];
+          if (prev) body.scrollTop = prev;
+        }
+        board.scrollLeft = savedBoardScrollLeft;
+      };
+      restoreScroll();
+      requestAnimationFrame(restoreScroll);
 
       attachDragHandlers();
       attachClickHandlers();
@@ -921,15 +991,33 @@
         state.filters.doneDays = Number.isFinite(v) && v >= 0 ? v : 0;
         render();
       });
+      let searchDebounce;
+      $("#filter-search").addEventListener("input", (e) => {
+        markInteraction();
+        state.filters.search = e.target.value;
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(render, 120);
+      });
       for (const t of $$(".tab")) {
         t.addEventListener("click", () => setView(t.dataset.view));
       }
 
-      // Auto-refresh: poll silently, skip while dragging, tab hidden, or
-      // toggled off. External edits (Obsidian frontmatter, MCP create/update)
-      // appear within ~5s without manual refresh.
+      // Track active scrolling on any lane-body so we can skip polls while
+      // the user is mid-flick. Scroll events don't bubble, so use capture.
+      document.addEventListener("scroll", (e) => {
+        if (e.target && e.target.classList && e.target.classList.contains("lane-body")) {
+          markInteraction();
+        }
+      }, true);
+      // Wheel/touch can fire ahead of the scroll event on some browsers.
+      document.addEventListener("wheel", markInteraction, { passive: true });
+      document.addEventListener("touchmove", markInteraction, { passive: true });
+
+      // Auto-refresh: poll silently, skip while dragging, tab hidden,
+      // toggled off, or while the user is actively scrolling/typing.
       setInterval(() => {
         if (!state.autoRefresh || state.isDragging || document.hidden) return;
+        if (Date.now() - state.lastInteractionAt < INTERACTION_QUIET_MS) return;
         loadTasks();
       }, POLL_INTERVAL_MS);
 

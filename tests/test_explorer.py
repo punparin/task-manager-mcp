@@ -51,6 +51,10 @@ def test_health(client):
     assert body["ok"] is True
     assert body["task_count"] == 5
     assert "Backlog" in body["valid_status"]
+    # Version is sourced from package metadata; in CI/editable installs it
+    # falls back to "dev" — assert presence and non-empty rather than a
+    # specific value so the test stays robust to release bumps.
+    assert isinstance(body["version"], str) and body["version"]
 
 
 def test_list_tasks_returns_all_with_payload_fields(client):
