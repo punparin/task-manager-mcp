@@ -200,6 +200,42 @@
     }
     .tree-link:hover { text-decoration: underline; }
 
+    .progress {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .progress-bar {
+      flex: 1;
+      height: 4px;
+      background: var(--panel-2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.18s ease-out;
+    }
+    .progress-fill.complete { background: var(--done); }
+
+    /* Interactive checklist in side panel */
+    .checklist { display: flex; flex-direction: column; gap: 4px; }
+    .checklist-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+      cursor: pointer;
+      user-select: none;
+    }
+    .checklist-item input { margin-top: 3px; cursor: pointer; }
+    .checklist-item.checked span { color: var(--muted); text-decoration: line-through; }
+
     /* Side panel */
     .panel {
       position: fixed;
@@ -423,6 +459,13 @@
                <a class="tree-link" data-show-tree="${task.id}">tree →</a>
              </div>`
           : "";
+      const p = task.progress;
+      const progressRow = p
+        ? `<div class="progress" title="${p.done} of ${p.total} subtasks done">
+             <div class="progress-bar"><div class="progress-fill ${p.pct === 100 ? "complete" : ""}" style="width: ${p.pct}%"></div></div>
+             <span>${p.done}/${p.total}</span>
+           </div>`
+        : "";
       return `
         <div class="card ${isNext ? "next-task" : ""}" data-id="${task.id}">
           <div class="card-row">
@@ -437,6 +480,7 @@
             ${task.area ? `<span>${escapeHtml(task.area)}</span>` : ""}
             ${tags}
           </div>
+          ${progressRow}
           ${depsRow}
         </div>`;
     }
@@ -581,7 +625,7 @@
         ${t.project ? `<div class="panel-section"><h3>Project</h3><div>${escapeHtml(t.project)}</div></div>` : ""}
         ${t.area ? `<div class="panel-section"><h3>Area</h3><div>${escapeHtml(t.area)}</div></div>` : ""}
         ${t.tags && t.tags.length ? `<div class="panel-section"><h3>Tags</h3><div>${t.tags.map((x) => "#" + x).join(" ")}</div></div>` : ""}
-        ${t.body ? `<div class="panel-section"><h3>Body</h3><pre>${escapeHtml(t.body)}</pre></div>` : ""}
+        ${t.body ? `<div class="panel-section"><h3>Body</h3>${renderBody(t.body)}</div>` : ""}
         ${t.blocked_by && t.blocked_by.length ? `<div class="panel-section"><h3>Dep tree</h3><pre>${escapeHtml(tree)}</pre></div>` : ""}
         <div class="panel-section">
           <h3>Actions</h3>
@@ -603,6 +647,100 @@
           $("#panel").classList.remove("open");
         });
       }
+
+      // Wire each checkbox to PATCH /checklist/{index}. Keep indices in sync
+      // with the server's parser (fenced code blocks ignored, all depths
+      // counted) — handled in renderBody below.
+      for (const cb of $$('.checklist-item input[type="checkbox"]')) {
+        cb.addEventListener("change", async (e) => {
+          const idx = parseInt(cb.getAttribute("data-index"), 10);
+          await tickChecklistItem(taskId, idx, cb.checked);
+        });
+      }
+    }
+
+    /**
+     * Render a task body, splitting checklist lines (`- [ ]` / `- [x]`,
+     * outside fenced code blocks) into clickable items and the rest as a
+     * <pre>. Item indices are 1-based and match what the server's
+     * checklist.tick() expects, so frontend and backend agree on what
+     * "item 3" is.
+     */
+    function renderBody(body) {
+      const lines = body.split("\n");
+      const ITEM = /^(\s*)([-*])\s+\[([ xX])\]\s+(.+)$/;
+      const FENCE = /^\s*```/;
+      const segments = []; // [{type: 'pre'|'list', lines: [...]}]
+      let inFence = false;
+      let curList = null;
+      let curPre = null;
+      let itemIndex = 0;
+      const flushPre = () => { if (curPre) { segments.push(curPre); curPre = null; } };
+      const flushList = () => { if (curList) { segments.push(curList); curList = null; } };
+      for (const line of lines) {
+        if (FENCE.test(line)) {
+          inFence = !inFence;
+          flushList();
+          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+          continue;
+        }
+        if (inFence) {
+          flushList();
+          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+          continue;
+        }
+        const m = line.match(ITEM);
+        if (m) {
+          flushPre();
+          itemIndex += 1;
+          (curList ||= { type: "list", items: [] }).items.push({
+            index: itemIndex,
+            checked: m[3] === "x" || m[3] === "X",
+            text: m[4],
+          });
+        } else {
+          flushList();
+          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+        }
+      }
+      flushPre();
+      flushList();
+      return segments
+        .map((seg) => {
+          if (seg.type === "pre") {
+            // Trim leading/trailing blank lines so prose chunks don't add visual noise.
+            const text = seg.lines.join("\n").replace(/^\n+|\n+$/g, "");
+            return text ? `<pre>${escapeHtml(text)}</pre>` : "";
+          }
+          const items = seg.items
+            .map(
+              (it) => `
+                <label class="checklist-item ${it.checked ? "checked" : ""}">
+                  <input type="checkbox" data-index="${it.index}" ${it.checked ? "checked" : ""} />
+                  <span>${escapeHtml(it.text)}</span>
+                </label>`
+            )
+            .join("");
+          return `<div class="checklist">${items}</div>`;
+        })
+        .join("");
+    }
+
+    async function tickChecklistItem(taskId, index, checked) {
+      const res = await fetch(`/api/tasks/${taskId}/checklist/${index}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checked }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast(err.detail || `tick failed: ${res.status}`, "error");
+        await openPanel(taskId);
+        return;
+      }
+      // Refresh the panel + board so the progress badge updates.
+      await openPanel(taskId);
+      await loadTasks();
     }
 
     function renderTreeAscii(node, indent = "") {

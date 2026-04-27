@@ -173,3 +173,63 @@ def test_index_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "<title>Task Manager Explorer</title>" in res.text
+
+
+# ── Checklist progress + tick endpoint ──────────────────────────────────
+
+
+def _create_with_checklist(client, body: str) -> str:
+    res = client.post(
+        "/api/tasks",
+        json={"title": "Checklist task", "priority": "P2", "assignee": "claude", "body": body},
+    )
+    assert res.status_code == 200
+    return res.json()["id"]
+
+
+def test_list_tasks_includes_progress_when_checklist_present(client):
+    tid = _create_with_checklist(client, "- [ ] one\n- [x] two\n- [ ] three\n")
+    body = client.get("/api/tasks").json()
+    payload = next(t for t in body["tasks"] if t["id"] == tid)
+    assert payload["progress"] == {"done": 1, "total": 3, "pct": 33}
+
+
+def test_list_tasks_omits_progress_when_no_checklist(client):
+    # The seeded T-001..T-005 tasks have no checklist content.
+    body = client.get("/api/tasks").json()
+    for t in body["tasks"]:
+        assert "progress" not in t
+
+
+def test_tick_checklist_flips_box_and_returns_updated_progress(client):
+    tid = _create_with_checklist(client, "- [ ] alpha\n- [ ] beta\n")
+    res = client.patch(f"/api/tasks/{tid}/checklist/2", json={"checked": True})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["progress"] == {"done": 1, "total": 2, "pct": 50}
+    assert "- [x] beta" in body["body"]
+    assert "- [ ] alpha" in body["body"]
+
+
+def test_tick_checklist_uncheck(client):
+    tid = _create_with_checklist(client, "- [x] alpha\n")
+    res = client.patch(f"/api/tasks/{tid}/checklist/1", json={"checked": False})
+    assert res.status_code == 200
+    assert res.json()["progress"]["done"] == 0
+
+
+def test_tick_checklist_out_of_range_returns_422(client):
+    tid = _create_with_checklist(client, "- [ ] only\n")
+    res = client.patch(f"/api/tasks/{tid}/checklist/5", json={"checked": True})
+    assert res.status_code == 422
+
+
+def test_tick_checklist_unknown_task_returns_404(client):
+    res = client.patch("/api/tasks/T-999/checklist/1", json={"checked": True})
+    assert res.status_code == 404
+
+
+def test_tick_checklist_no_items_returns_422(client):
+    # T-005 has no body, so there are no items to flip.
+    res = client.patch("/api/tasks/T-005/checklist/1", json={"checked": True})
+    assert res.status_code == 422
