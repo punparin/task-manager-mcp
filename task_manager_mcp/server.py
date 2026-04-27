@@ -8,16 +8,13 @@ from datetime import date
 
 from fastmcp import FastMCP
 
-from .tasks import TaskStore, VALID_STATUS, VALID_PRIORITY, VALID_ASSIGNEE
-from .deps import (
-    detect_cycle,
-    next_task as _next_task,
-    task_tree as _task_tree,
-    render_tree,
-    blocked_tasks as _blocked_tasks,
-    what_unblocks,
-    is_unblocked,
-)
+from .checklist import task_to_dict
+from .checklist import tick as _tick_item
+from .deps import blocked_tasks as _blocked_tasks
+from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
+from .deps import next_task as _next_task
+from .deps import task_tree as _task_tree
+from .tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,7 +84,7 @@ async def create_task(
         blocked_by=deps_list,
         body=body,
     )
-    return f"Created {task.id}: {task.title}\n{json.dumps(task.to_dict(), indent=2, default=str)}"
+    return f"Created {task.id}: {task.title}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
 
 
 @mcp.tool()
@@ -117,15 +114,14 @@ async def list_tasks(
     if not tasks:
         return "No tasks match those filters."
 
-    return json.dumps([t.to_dict() for t in tasks], indent=2, default=str)
+    return json.dumps([task_to_dict(t) for t in tasks], indent=2, default=str)
 
 
 @mcp.tool()
 async def get_task(task_id: str) -> str:
     """Get full details of a task including body content."""
     task = store.get(task_id)
-    out = task.to_dict()
-    out["body"] = task.body
+    out = task_to_dict(task, include_body=True)
     return json.dumps(out, indent=2, default=str)
 
 
@@ -173,7 +169,34 @@ async def update_task(
         updates["body"] = body
 
     task = store.update(task_id, **updates)
-    return f"Updated {task.id}\n{json.dumps(task.to_dict(), indent=2, default=str)}"
+    return f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+
+
+@mcp.tool()
+async def tick_item(task_id: str, index: int, checked: bool = True) -> str:
+    """Check or uncheck a checklist item in the task body (1-based index).
+
+    Use this to mark sub-steps done as you progress, instead of rewriting
+    the whole body via update_task. The progress rollup (done/total/pct)
+    is recomputed and returned.
+
+    task_id: Task ID (e.g. T-042)
+    index: 1-based position of the checklist item within the body
+    checked: True to mark `[x]`, False to mark `[ ]` (default True)
+    """
+    task = store.get(task_id)
+    try:
+        new_body, progress = _tick_item(task.body, index, checked)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    task.body = new_body
+    store.save(task)
+    state = "checked" if checked else "unchecked"
+    item_text = progress.items[index - 1].text
+    return (
+        f"{state} item {index} of {task_id}: {item_text}\n"
+        f"progress: {progress.done}/{progress.total} ({progress.pct}%)"
+    )
 
 
 @mcp.tool()
@@ -250,8 +273,7 @@ async def next_task(assignee: str = "claude") -> str:
     task = _next_task(store, assignee=assignee or None)
     if not task:
         return "No workable tasks. All Ready tasks may be blocked, or none assigned."
-    out = task.to_dict()
-    out["body"] = task.body
+    out = task_to_dict(task, include_body=True)
     return json.dumps(out, indent=2, default=str)
 
 
@@ -271,9 +293,9 @@ async def my_tasks(assignee: str = "me") -> str:
     in_progress = [t for t in tasks if t.status == "In Progress"]
 
     return json.dumps({
-        "overdue": [t.to_dict() for t in overdue],
-        "due_today": [t.to_dict() for t in due_today],
-        "in_progress": [t.to_dict() for t in in_progress],
+        "overdue": [task_to_dict(t) for t in overdue],
+        "due_today": [task_to_dict(t) for t in due_today],
+        "in_progress": [task_to_dict(t) for t in in_progress],
     }, indent=2, default=str)
 
 
@@ -292,7 +314,7 @@ async def blocked_tasks() -> str:
         return "No blocked tasks."
     out = []
     for t in blocked:
-        d = t.to_dict()
+        d = task_to_dict(t)
         d["waiting_on"] = t.blocked_by
         out.append(d)
     return json.dumps(out, indent=2, default=str)

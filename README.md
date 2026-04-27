@@ -106,6 +106,7 @@ Task lists alone aren't enough — you need to know **what to work on first**. T
 | `list_tasks` | Filter by status, assignee, priority, project |
 | `get_task` | Read full task details + body |
 | `update_task` | Change any task field |
+| `tick_item` | Check/uncheck a checklist item in the body (1-based index) |
 | `add_blocker` | Add a dependency (with cycle check) |
 | `start_task` | Mark In Progress (verifies deps satisfied) |
 | `complete_task` | Mark Done + announce what's unblocked |
@@ -144,6 +145,14 @@ Add token-bucket rate limiting to the v3 API endpoints.
 - [ ] Rate limit headers returned
 - [ ] Tests cover bucket exhaustion
 ```
+
+## Checklist Progress
+
+Any `- [ ]` / `- [x]` items in a task body are parsed as substeps. `get_task`, `list_tasks`, `next_task`, and `my_tasks` include a `progress: {done, total, pct}` rollup whenever the body has at least one checkbox — so you can see "T-042 (3/5, 60%)" without expanding the task.
+
+Use `tick_item(task_id, index, checked=True)` to flip a single box without rewriting the body. Index is 1-based, counting all checkboxes in document order (nested items included). Code fences are skipped, so `[ ]` inside ```` ``` ```` blocks won't be miscounted.
+
+Progress is **derived on read** — never persisted to frontmatter — so editing the body in Obsidian and using `tick_item` from Claude can't drift apart. Completion is still explicit: `complete_task` does not auto-fire when all boxes are checked, since marking Done has side effects (timestamp, downstream unblock).
 
 ## Installation
 
