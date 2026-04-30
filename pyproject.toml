@@ -2,6 +2,7 @@
 name = "task-manager-mcp"
 version = "0.4.2"
 description = "Task management MCP for Claude Code with dependency resolution, on top of Obsidian"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=2.0.0",

@@ -2,6 +2,36 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to your agent, and have any MCP-capable agent (Claude Code, Cursor, Cline, Continue, Goose, Windsurf, …) pick up the next workable task automatically.
 
+## Quickstart
+
+```bash
+# 1. Pull the image
+docker pull ghcr.io/punparin/task-manager-mcp:latest
+
+# 2. Register with your MCP client (Claude Code shown — see "Register
+#    with Your MCP Client" below for other clients).
+claude mcp add -s user task-manager -- \
+  docker run -i --rm \
+    -v /path/to/your/vault:/vault \
+    ghcr.io/punparin/task-manager-mcp:latest
+```
+
+Then in your agent, try:
+
+```
+create task "First demo task" P2 assignee:agent
+next_task
+```
+
+The first call writes `T-001.md` into `<vault>/tasks/`; the second
+returns it because nothing's blocking it. Mark it Done with
+`complete_task T-001` and the agent will tell you what's now
+unblocked.
+
+Want a Kanban board for the same tasks? Run the
+[Explorer](#explorer-web-ui) sidecar (`docker run -p 8765:8765 …
+task-manager-mcp-explorer`) and open `http://localhost:8765`.
+
 ## Architecture
 
 ```mermaid
