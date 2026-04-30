@@ -233,8 +233,12 @@ vault, same `tasks/` folder, same frontmatter — Explorer just renders it.
 - Dependency-aware: dragging a Ready-but-blocked card to **In Progress** is rejected with `409` and the unfinished blockers listed
 - Completing a task auto-stamps `completed: <today>` and surfaces newly unblocked tasks as a toast
 - `next_task` is highlighted with a green border so you always see what's up next
+- Checklist progress on cards and in the side panel — tick boxes inline, written straight to the task body
 - Dep graph view (Cytoscape.js) — click a node to open the side panel
 - Filters: assignee, priority, project, area, hide done/cancelled
+- Universal search (id / title / project / area / tag) with a live result count
+- Auto-refresh that preserves scroll position and selection so triage doesn't jump around
+- Package version shown in the header for quick "what am I running?" checks
 
 ### Run
 
@@ -262,6 +266,7 @@ docker run -p 8765:8765 -v /path/to/vault:/vault ghcr.io/punparin/task-manager-m
 | `GET` | `/api/tasks` | List with filters: `?status=&assignee=&priority=&project=&area=`. Returns `next_task_id` |
 | `GET` | `/api/tasks/{id}` | Full detail: body, dep tree, computed `is_unblocked`, `unfinished_blockers`, `dep_count` |
 | `PATCH` | `/api/tasks/{id}/status` | Body `{status, completion_notes?}`. Validates deps when target is `In Progress`. Returns `{task, old_status, unblocked}` |
+| `PATCH` | `/api/tasks/{id}/checklist/{index}` | Body `{checked}`. Flips the n-th checkbox in the body (1-based). Mirrors MCP `tick_item` |
 | `PATCH` | `/api/tasks/{id}` | Update fields (title, priority, due, etc.) |
 | `POST` | `/api/tasks` | Create task |
 | `GET` | `/api/next?assignee=` | Same logic as MCP `next_task` |
@@ -270,7 +275,7 @@ docker run -p 8765:8765 -v /path/to/vault:/vault ghcr.io/punparin/task-manager-m
 
 ## Architecture
 
-- `task_manager_mcp/server.py` — FastMCP server, 13 tools
+- `task_manager_mcp/server.py` — FastMCP server, 14 tools
 - `task_manager_mcp/tasks.py` — Task dataclass, file I/O
 - `task_manager_mcp/deps.py` — Dependency resolver, cycle detection, next_task algorithm
 - `task_manager_mcp/explorer/` — FastAPI sidecar (web UI + REST)
