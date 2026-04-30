@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .tasks import Task, TaskStore
+from .tasks import Task, TaskStore, canonical_assignee
 
 PRIORITY_RANK = {"P1": 1, "P2": 2, "P3": 3, "P4": 4}
 TERMINAL_STATUSES = {"Done", "Cancelled"}
@@ -69,10 +69,11 @@ def next_task(store: TaskStore, assignee: Optional[str] = None) -> Optional[Task
     """
     all_tasks = {t.id: t for t in store.all()}
     candidates = []
+    target = canonical_assignee(assignee) if assignee else None
     for t in all_tasks.values():
         if t.status != "Ready":
             continue
-        if assignee and t.assignee != assignee:
+        if target and canonical_assignee(t.assignee) != target:
             continue
         if not is_unblocked(t, all_tasks):
             continue

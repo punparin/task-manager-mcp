@@ -89,6 +89,25 @@ class TestNextTask:
         store.create(title="A", status="Backlog", assignee="claude")
         assert next_task(store, "claude") is None
 
+    def test_agent_filter_matches_legacy_claude_files(self, store):
+        """Querying for 'agent' should match files written with assignee: claude."""
+        store.create(title="Legacy", status="Ready", assignee="claude", priority="P2")
+        result = next_task(store, "agent")
+        assert result is not None
+        assert result.title == "Legacy"
+
+    def test_claude_filter_matches_new_agent_files(self, store):
+        """Backward direction: querying for 'claude' should match files using 'agent'."""
+        store.create(title="New", status="Ready", assignee="agent", priority="P2")
+        result = next_task(store, "claude")
+        assert result is not None
+        assert result.title == "New"
+
+    def test_agent_assignee_is_valid(self, store):
+        """create_task with assignee='agent' should succeed (no ValueError)."""
+        task = store.create(title="A", status="Ready", assignee="agent")
+        assert task.assignee == "agent"
+
 
 class TestTaskTree:
     def test_simple_tree(self, store):

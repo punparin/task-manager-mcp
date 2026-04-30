@@ -12,7 +12,24 @@ import frontmatter
 
 VALID_STATUS = ["Backlog", "Ready", "In Progress", "Done", "Blocked", "Cancelled"]
 VALID_PRIORITY = ["P1", "P2", "P3", "P4"]
-VALID_ASSIGNEE = ["me", "claude"]
+# `agent` is the canonical name for "an MCP agent picks this up". `claude` is
+# the historical alias kept for backward compatibility with vaults that
+# already have task files written before the rename. Both are accepted on
+# write, treated as the same logical assignee on filter (see
+# `canonical_assignee`), and surface as themselves on read so existing files
+# aren't silently rewritten.
+VALID_ASSIGNEE = ["me", "agent", "claude"]
+ASSIGNEE_ALIASES = {"claude": "agent"}
+
+
+def canonical_assignee(value: str) -> str:
+    """Map legacy assignee values to their canonical form for filtering.
+
+    Used everywhere we compare an assignee filter against a stored task —
+    so a query for `agent` matches files written with `assignee: claude`
+    (and vice versa) without rewriting the files.
+    """
+    return ASSIGNEE_ALIASES.get(value, value)
 
 TASK_ID_RE = re.compile(r"^T-(\d+)$")
 TASKS_FOLDER = "tasks"

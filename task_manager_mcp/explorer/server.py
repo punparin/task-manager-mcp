@@ -22,7 +22,7 @@ from ..deps import blocked_tasks as _blocked_tasks
 from ..deps import is_unblocked, what_unblocks
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
-from ..tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore
+from ..tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 logging.basicConfig(
     level=logging.INFO,
@@ -139,7 +139,8 @@ def create_app(vault_path: str | Path) -> FastAPI:
         if status:
             results = [t for t in results if t.status == status]
         if assignee:
-            results = [t for t in results if t.assignee == assignee]
+            target = canonical_assignee(assignee)
+            results = [t for t in results if canonical_assignee(t.assignee) == target]
         if priority:
             results = [t for t in results if t.priority == priority]
         if project:
@@ -168,7 +169,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         return out
 
     @app.get("/api/next")
-    def next_task(assignee: str = "claude"):
+    def next_task(assignee: str = "agent"):
         task = _next_task(store, assignee=assignee or None)
         if not task:
             return {"task": None}

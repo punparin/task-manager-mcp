@@ -128,7 +128,7 @@ id: T-042
 title: Implement rate limiting
 status: Ready          # Backlog, Ready, In Progress, Done, Blocked, Cancelled
 priority: P2           # P1, P2, P3, P4
-assignee: claude       # me, claude
+assignee: agent        # me, agent (legacy 'claude' still accepted as a synonym for 'agent')
 project: "[[API Migration]]"
 area: Backend
 created: 2026-04-09
