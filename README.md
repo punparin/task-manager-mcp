@@ -1,20 +1,20 @@
 # Task Manager MCP
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to Claude, and have Claude pick up the next workable task automatically.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to your agent, and have any MCP-capable agent (Claude Code, Cursor, Cline, Continue, Goose, Windsurf, …) pick up the next workable task automatically.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     User[You]
-    Claude[Claude Code]
+    Agent[MCP Client / Agent]
     TM[Task Manager MCP]
     OM[Obsidian MCP]
     Vault[(Vault tasks/)]
 
-    User --> Claude
-    Claude --> TM
-    Claude --> OM
+    User --> Agent
+    Agent --> TM
+    Agent --> OM
     TM --> Vault
     OM --> Vault
 
@@ -24,7 +24,7 @@ flowchart LR
     classDef store fill:#fce4ec,stroke:#333
 
     class User user
-    class Claude ai
+    class Agent ai
     class TM,OM mcp
     class Vault store
 ```
@@ -52,7 +52,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Start[Claude asks for next task]
+    Start[Agent asks for next task]
     Filter1[Get tasks with status = Ready]
     Filter2[Filter by assignee]
     Loop{For each task}
@@ -95,8 +95,8 @@ Task lists alone aren't enough — you need to know **what to work on first**. T
 - **Priority + due date sorting** — P1s first, then by due date
 - **Cycle detection** — prevents impossible task graphs
 - **Status workflow** — Backlog → Ready → In Progress → Done (with Blocked / Cancelled escapes)
-- **Claude assignee** — `assignee: claude` lets Claude know which tasks to pick up
-- **Auto-unblock notification** — when you complete a task, Claude tells you what's now ready
+- **Agent assignee** — `assignee: claude` is the convention for tasks the agent should pick up (works with any MCP client; the literal value `claude` is just the historical name baked into the schema)
+- **Auto-unblock notification** — when you complete a task, the agent tells you what's now ready
 
 ## Features
 
@@ -152,7 +152,7 @@ Any `- [ ]` / `- [x]` items in a task body are parsed as substeps. `get_task`, `
 
 Use `tick_item(task_id, index, checked=True)` to flip a single box without rewriting the body. Index is 1-based, counting all checkboxes in document order (nested items included). Code fences are skipped, so `[ ]` inside ```` ``` ```` blocks won't be miscounted.
 
-Progress is **derived on read** — never persisted to frontmatter — so editing the body in Obsidian and using `tick_item` from Claude can't drift apart. Completion is still explicit: `complete_task` does not auto-fire when all boxes are checked, since marking Done has side effects (timestamp, downstream unblock).
+Progress is **derived on read** — never persisted to frontmatter — so editing the body in Obsidian and calling `tick_item` from your agent can't drift apart. Completion is still explicit: `complete_task` does not auto-fire when all boxes are checked, since marking Done has side effects (timestamp, downstream unblock).
 
 ## Installation
 
@@ -171,9 +171,17 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-## Register with Claude Code
+## Register with Your MCP Client
 
-### Docker
+The server speaks stdio MCP, so it works with any MCP-capable client.
+Concrete examples below use Claude Code's `claude mcp add` CLI; for
+[Cursor](https://docs.cursor.com/), [Cline](https://cline.bot/),
+[Continue](https://www.continue.dev/), [Goose](https://block.github.io/goose/),
+[Windsurf](https://codeium.com/windsurf), or any other MCP host, plug
+the same `docker run …` or `python -m task_manager_mcp` command into
+your client's MCP server config.
+
+### Docker (Claude Code example)
 
 ```bash
 claude mcp add \
@@ -182,7 +190,7 @@ claude mcp add \
   -- docker run -i --rm -v /path/to/your/vault:/vault ghcr.io/punparin/task-manager-mcp:latest
 ```
 
-### Local
+### Local (Claude Code example)
 
 ```bash
 claude mcp add \
@@ -194,30 +202,34 @@ claude mcp add \
 
 ## Workflow Example
 
+The dialogue below uses a generic "Agent:" label — the exact prompt
+shape is whatever your MCP client uses (slash commands, free-form
+chat, etc.).
+
 **You queue work:**
 ```
-You: create task "Fix auth bug" P2 assignee:claude blocked_by:T-038
-Claude: Created T-042. Won't appear in next_task until T-038 is Done.
+You:   create task "Fix auth bug" P2 assignee:claude blocked_by:T-038
+Agent: Created T-042. Won't appear in next_task until T-038 is Done.
 ```
 
-**Claude picks up work:**
+**Agent picks up work:**
 ```
-You: what's next?
-Claude: [next_task]
-        → T-038: Refactor auth middleware (P2, no blockers)
-        Want me to start? T-042 is waiting on this.
-You: yes
-Claude: [start_task T-038, works, completes]
-        Done. Unblocked: T-042 (Fix auth bug)
+You:   what's next?
+Agent: [next_task]
+       → T-038: Refactor auth middleware (P2, no blockers)
+       Want me to start? T-042 is waiting on this.
+You:   yes
+Agent: [start_task T-038, works, completes]
+       Done. Unblocked: T-042 (Fix auth bug)
 ```
 
 **Daily review:**
 ```
-You: my tasks today
-Claude: [my_tasks]
-        Overdue: T-035 (Update docs)
-        Due today: T-040 (Deploy v3)
-        In progress: T-038 (Refactor middleware)
+You:   my tasks today
+Agent: [my_tasks]
+       Overdue: T-035 (Update docs)
+       Due today: T-040 (Deploy v3)
+       In progress: T-038 (Refactor middleware)
 ```
 
 ## Explorer (web UI)
