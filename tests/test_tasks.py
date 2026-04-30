@@ -83,3 +83,43 @@ class TestTaskStore:
         store.create(title="C")
         ids = [t.id for t in store.all()]
         assert ids == ["T-001", "T-002", "T-003"]
+
+
+class TestTasksFolder:
+    """The folder where task files live is configurable so teams can fit
+    the MCP into their existing vault layout (e.g. tasks live under
+    `inbox/tasks/` or `work/queue/`)."""
+
+    def test_default_folder_is_tasks(self, tmp_path):
+        from task_manager_mcp.tasks import TaskStore
+
+        store = TaskStore(tmp_path)
+        assert store.tasks_dir == (tmp_path / "tasks").resolve()
+
+    def test_constructor_arg_overrides_default(self, tmp_path):
+        from task_manager_mcp.tasks import TaskStore
+
+        store = TaskStore(tmp_path, tasks_folder="work/queue")
+        assert store.tasks_dir == (tmp_path / "work" / "queue").resolve()
+        store.create(title="Custom-folder task")
+        assert (tmp_path / "work" / "queue" / "T-001.md").exists()
+
+    def test_env_var_picked_up_when_no_arg(self, tmp_path, monkeypatch):
+        from task_manager_mcp.tasks import TaskStore
+
+        monkeypatch.setenv("TASK_MANAGER_TASKS_FOLDER", "inbox/tasks")
+        store = TaskStore(tmp_path)
+        assert store.tasks_dir == (tmp_path / "inbox" / "tasks").resolve()
+
+    def test_constructor_arg_beats_env_var(self, tmp_path, monkeypatch):
+        from task_manager_mcp.tasks import TaskStore
+
+        monkeypatch.setenv("TASK_MANAGER_TASKS_FOLDER", "from-env")
+        store = TaskStore(tmp_path, tasks_folder="from-arg")
+        assert store.tasks_dir == (tmp_path / "from-arg").resolve()
+
+    def test_path_traversal_rejected(self, tmp_path):
+        from task_manager_mcp.tasks import TaskStore
+
+        with pytest.raises(ValueError, match="outside vault"):
+            TaskStore(tmp_path, tasks_folder="../escape")

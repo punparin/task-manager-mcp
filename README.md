@@ -149,7 +149,12 @@ Task lists alone aren't enough — you need to know **what to work on first**. T
 
 ## Task Format
 
-Each task is a markdown file in `tasks/` folder of the vault:
+Each task is a markdown file in the tasks folder of the vault. The
+folder defaults to `tasks/` but is configurable — set
+`TASK_MANAGER_TASKS_FOLDER` to e.g. `inbox/tasks` or `work/queue` if
+your vault layout already has somewhere tasks belong. The path is
+resolved relative to the vault root and may be nested; `..` escapes
+that resolve outside the vault are rejected at startup.
 
 ```yaml
 ---
@@ -229,6 +234,27 @@ claude mcp add \
   task-manager \
   -- /path/to/task-manager-mcp/.venv/bin/python -m task_manager_mcp
 ```
+
+### Custom tasks folder
+
+If your vault already has a different home for task files, point
+`TASK_MANAGER_TASKS_FOLDER` at it (relative to the vault root):
+
+```bash
+# Docker
+docker run -i --rm \
+  -v /path/to/your/vault:/vault \
+  -e TASK_MANAGER_TASKS_FOLDER=inbox/tasks \
+  ghcr.io/punparin/task-manager-mcp:latest
+
+# Local
+TASK_MANAGER_TASKS_FOLDER=work/queue \
+OBSIDIAN_VAULT_PATH=/path/to/your/vault \
+  /path/to/task-manager-mcp/.venv/bin/python -m task_manager_mcp
+```
+
+The folder is created on first run if it doesn't exist. Hit
+`/api/health` on the Explorer to confirm which path resolved.
 
 ## Workflow Example
 

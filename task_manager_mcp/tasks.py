@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
@@ -32,7 +33,7 @@ def canonical_assignee(value: str) -> str:
     return ASSIGNEE_ALIASES.get(value, value)
 
 TASK_ID_RE = re.compile(r"^T-(\d+)$")
-TASKS_FOLDER = "tasks"
+DEFAULT_TASKS_FOLDER = "tasks"
 
 
 @dataclass
@@ -111,12 +112,34 @@ class Task:
 
 
 class TaskStore:
-    """File-backed task store. Stores tasks as markdown files in tasks/ folder."""
+    """File-backed task store. Stores tasks as markdown files under
+    ``tasks_folder`` (default ``tasks/``, override via the
+    ``TASK_MANAGER_TASKS_FOLDER`` env var or by passing ``tasks_folder``
+    explicitly). Path is resolved relative to the vault root and may be
+    nested (e.g. ``inbox/tasks``)."""
 
-    def __init__(self, vault_path: str | Path):
+    def __init__(
+        self,
+        vault_path: str | Path,
+        tasks_folder: Optional[str] = None,
+    ):
         self.vault = Path(vault_path).resolve()
-        self.tasks_dir = self.vault / TASKS_FOLDER
+        folder = tasks_folder or os.environ.get("TASK_MANAGER_TASKS_FOLDER") or DEFAULT_TASKS_FOLDER
+        self.tasks_dir = (self.vault / folder).resolve()
+        # Guard against `..` escapes that would let a misconfigured
+        # folder write outside the vault.
+        if not self._is_within_vault(self.tasks_dir):
+            raise ValueError(
+                f"tasks_folder {folder!r} resolves outside vault {self.vault}"
+            )
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    def _is_within_vault(self, path: Path) -> bool:
+        try:
+            path.relative_to(self.vault)
+            return True
+        except ValueError:
+            return False
 
     def _path_for(self, task_id: str) -> Path:
         return self.tasks_dir / f"{task_id}.md"
