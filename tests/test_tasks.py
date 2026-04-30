@@ -1,6 +1,6 @@
 import pytest
 
-from task_manager_mcp.tasks import Task, TaskStore
+from task_manager_mcp.tasks import Task
 
 
 class TestTaskValidation:
