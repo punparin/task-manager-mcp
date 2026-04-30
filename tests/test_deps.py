@@ -1,9 +1,9 @@
 from task_manager_mcp.deps import (
+    blocked_tasks,
     detect_cycle,
     is_unblocked,
     next_task,
     task_tree,
-    blocked_tasks,
     what_unblocks,
 )
 
