@@ -52,5 +52,6 @@ blocked_by: [T-038, T-040]
 - `next_task` returns highest-priority Ready task with all dependencies satisfied
 - Cycle detection on every create/update
 - Vault path via `OBSIDIAN_VAULT_PATH` env var
+- Tasks folder defaults to `tasks/` relative to vault; override with `TASK_MANAGER_TASKS_FOLDER` (resolved against vault root, `..` escapes rejected)
 - Logging to stderr only (STDIO transport requirement)
 - Checklist progress (`{done, total, pct}`) is computed on read from the body and attached to tool output only when there's at least one checkbox. `tick_item` flips a box in place; `complete_task` is still explicit even when 100%.
