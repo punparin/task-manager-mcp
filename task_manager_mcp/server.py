@@ -14,7 +14,7 @@ from .deps import blocked_tasks as _blocked_tasks
 from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
 from .deps import next_task as _next_task
 from .deps import task_tree as _task_tree
-from .tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore
+from .tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +52,7 @@ async def create_task(
 
     title: Task title (required)
     priority: P1-P4 (default P3)
-    assignee: 'me' or 'claude' (default me)
+    assignee: 'me' or 'agent' (default me; legacy 'claude' still accepted as a synonym for 'agent')
     status: Backlog/Ready/In Progress/Done/Blocked/Cancelled (default Backlog)
     project: Project name or [[wikilink]] (optional)
     area: Area like 'Backend', 'Frontend' (optional)
@@ -97,7 +97,7 @@ async def list_tasks(
     """List tasks with optional filters.
 
     status: filter by status (e.g., 'Ready', 'In Progress')
-    assignee: filter by 'me' or 'claude'
+    assignee: filter by 'me' or 'agent' (legacy 'claude' is treated as 'agent')
     priority: filter by P1/P2/P3/P4
     project: filter by project name (partial match)
     """
@@ -105,7 +105,8 @@ async def list_tasks(
     if status:
         tasks = [t for t in tasks if t.status == status]
     if assignee:
-        tasks = [t for t in tasks if t.assignee == assignee]
+        target = canonical_assignee(assignee)
+        tasks = [t for t in tasks if canonical_assignee(t.assignee) == target]
     if priority:
         tasks = [t for t in tasks if t.priority == priority]
     if project:
@@ -265,10 +266,11 @@ async def block_task(task_id: str, reason: str) -> str:
 
 
 @mcp.tool()
-async def next_task(assignee: str = "claude") -> str:
+async def next_task(assignee: str = "agent") -> str:
     """Get the next workable task: status=Ready, dependencies satisfied, sorted by priority/due/created.
 
-    Default assignee is 'claude' so Claude can ask 'what's next for me?'.
+    Default assignee is 'agent' so an MCP agent can ask 'what's next for me?'.
+    Tasks written before the rename with `assignee: claude` are matched too.
     """
     task = _next_task(store, assignee=assignee or None)
     if not task:
@@ -286,7 +288,8 @@ async def my_tasks(assignee: str = "me") -> str:
     today = date.today().isoformat()
     tasks = store.all()
     if assignee:
-        tasks = [t for t in tasks if t.assignee == assignee]
+        target = canonical_assignee(assignee)
+        tasks = [t for t in tasks if canonical_assignee(t.assignee) == target]
 
     overdue = [t for t in tasks if t.due and t.due < today and t.status not in {"Done", "Cancelled"}]
     due_today = [t for t in tasks if t.due == today and t.status not in {"Done", "Cancelled"}]
