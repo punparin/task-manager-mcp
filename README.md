@@ -256,6 +256,31 @@ OBSIDIAN_VAULT_PATH=/path/to/your/vault \
 The folder is created on first run if it doesn't exist. Hit
 `/api/health` on the Explorer to confirm which path resolved.
 
+### Custom actors
+
+Out of the box, tasks can be assigned to `me` (the human) or `agent`
+(an MCP agent). To onboard a team — multiple humans, multiple AI
+agents, or both — drop a config file at `<vault>/.task-manager/config.yml`:
+
+```yaml
+actors:
+  - me
+  - agent
+  - alice
+  - bob
+  - cursor
+```
+
+The list replaces the defaults — if your team works strictly in named
+handles, you can omit `me` and `agent` entirely. The config lives in
+the vault, so syncing the vault syncs the actor list across the team.
+Validation runs only on writes; existing task files keep loading even
+if you later remove an actor (they just can't be re-saved with that
+assignee). Hit `/api/health` on the Explorer to see the resolved list.
+
+The legacy `claude` value is always accepted as an alias for `agent`,
+so vaults written before agents were renamed still round-trip.
+
 ## Workflow Example
 
 The dialogue below uses a generic "Agent:" label — the exact prompt

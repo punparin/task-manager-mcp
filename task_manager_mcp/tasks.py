@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field
@@ -10,16 +11,21 @@ from pathlib import Path
 from typing import Optional
 
 import frontmatter
+import yaml
+
+logger = logging.getLogger("task_manager_mcp.tasks")
 
 VALID_STATUS = ["Backlog", "Ready", "In Progress", "Done", "Blocked", "Cancelled"]
 VALID_PRIORITY = ["P1", "P2", "P3", "P4"]
-# `agent` is the canonical name for "an MCP agent picks this up". `claude` is
-# the historical alias kept for backward compatibility with vaults that
-# already have task files written before the rename. Both are accepted on
-# write, treated as the same logical assignee on filter (see
-# `canonical_assignee`), and surface as themselves on read so existing files
-# aren't silently rewritten.
-VALID_ASSIGNEE = ["me", "agent", "claude"]
+# Default actor set when no `<vault>/.task-manager/config.yml` is present.
+# `me` is the human user; `agent` is "an MCP agent picks this up"; `claude`
+# is a historical alias for `agent` kept so vaults written before the
+# rename still load. Teams can override this list via the config file
+# (see `load_actors`) — `claude` stays accepted as an alias regardless.
+DEFAULT_ACTORS = ["me", "agent", "claude"]
+# Kept for back-compat with code that imported VALID_ASSIGNEE before
+# actors became configurable. Prefer `TaskStore.actors`.
+VALID_ASSIGNEE = DEFAULT_ACTORS
 ASSIGNEE_ALIASES = {"claude": "agent"}
 
 
@@ -31,6 +37,44 @@ def canonical_assignee(value: str) -> str:
     (and vice versa) without rewriting the files.
     """
     return ASSIGNEE_ALIASES.get(value, value)
+
+
+CONFIG_DIR_NAME = ".task-manager"
+CONFIG_FILE_NAME = "config.yml"
+
+
+def load_actors(vault: Path) -> list[str]:
+    """Read `<vault>/.task-manager/config.yml` and return its `actors:` list.
+
+    Falls back to `DEFAULT_ACTORS` when the file is absent. Raises
+    `ValueError` when the file is present but malformed (unparseable
+    YAML, missing `actors`, non-list, empty list, or non-string entries)
+    so a typo'd config fails loudly at startup rather than silently
+    accepting any assignee string.
+    """
+    cfg_path = vault / CONFIG_DIR_NAME / CONFIG_FILE_NAME
+    if not cfg_path.exists():
+        return list(DEFAULT_ACTORS)
+    try:
+        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise ValueError(f"failed to parse {cfg_path}: {e}") from e
+    if not isinstance(data, dict) or "actors" not in data:
+        raise ValueError(f"{cfg_path} must contain an `actors:` key")
+    actors = data["actors"]
+    if not isinstance(actors, list) or not actors:
+        raise ValueError(f"{cfg_path}: `actors` must be a non-empty list")
+    if not all(isinstance(a, str) and a.strip() for a in actors):
+        raise ValueError(f"{cfg_path}: every actor must be a non-empty string")
+    # Preserve order, drop duplicates.
+    seen: set[str] = set()
+    out: list[str] = []
+    for a in actors:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+    return out
+
 
 TASK_ID_RE = re.compile(r"^T-(\d+)$")
 DEFAULT_TASKS_FOLDER = "tasks"
@@ -53,12 +97,14 @@ class Task:
     body: str = ""
 
     def __post_init__(self):
+        # Assignee is *not* validated here — that's done at the TaskStore
+        # write boundary against the (potentially configured) actor list.
+        # Reads stay permissive so old files keep loading even after the
+        # team trims their actor list.
         if self.status not in VALID_STATUS:
             raise ValueError(f"Invalid status: {self.status}. Must be one of {VALID_STATUS}")
         if self.priority not in VALID_PRIORITY:
             raise ValueError(f"Invalid priority: {self.priority}. Must be one of {VALID_PRIORITY}")
-        if self.assignee not in VALID_ASSIGNEE:
-            raise ValueError(f"Invalid assignee: {self.assignee}. Must be one of {VALID_ASSIGNEE}")
         if not self.created:
             self.created = date.today().isoformat()
 
@@ -133,6 +179,19 @@ class TaskStore:
                 f"tasks_folder {folder!r} resolves outside vault {self.vault}"
             )
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
+        self.actors: list[str] = load_actors(self.vault)
+
+    def validate_assignee(self, value: str) -> None:
+        # `claude` always resolves to `agent` — accept it as long as
+        # `agent` is in the configured set, so vaults written before
+        # the rename keep working under any custom actor list.
+        if value in self.actors:
+            return
+        if value == "claude" and "agent" in self.actors:
+            return
+        raise ValueError(
+            f"Invalid assignee: {value}. Must be one of {self.actors}"
+        )
 
     def _is_within_vault(self, path: Path) -> bool:
         try:
@@ -193,6 +252,7 @@ class TaskStore:
         blocked_by: Optional[list[str]] = None,
         body: str = "",
     ) -> Task:
+        self.validate_assignee(assignee)
         # Validate blocked_by tasks exist
         if blocked_by:
             for dep in blocked_by:
@@ -216,6 +276,8 @@ class TaskStore:
         return task
 
     def update(self, task_id: str, **updates) -> Task:
+        if "assignee" in updates:
+            self.validate_assignee(updates["assignee"])
         task = self.get(task_id)
         for key, value in updates.items():
             if hasattr(task, key):

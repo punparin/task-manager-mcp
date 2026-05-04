@@ -359,8 +359,6 @@
     <label>assignee
       <select id="filter-assignee">
         <option value="">all</option>
-        <option value="me">me</option>
-        <option value="agent">agent</option>
       </select>
     </label>
     <label>priority
@@ -473,6 +471,17 @@
       state.vaultPath = h.vault;
       $("#vault-info").textContent = `${h.vault} · ${h.task_count} tasks`;
       if (h.version) $("#version").textContent = `v${h.version}`;
+      if (Array.isArray(h.valid_assignee)) {
+        const select = $("#filter-assignee");
+        const current = select.value;
+        // Skip `claude` — it's an alias for `agent` and would show up
+        // as a duplicate column in the picker.
+        const visible = h.valid_assignee.filter((a) => a !== "claude");
+        select.innerHTML =
+          `<option value="">all</option>` +
+          visible.map((a) => `<option value="${a}">${a}</option>`).join("");
+        if (current && visible.includes(current)) select.value = current;
+      }
     }
 
     function dueClass(due) {

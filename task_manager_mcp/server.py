@@ -14,7 +14,7 @@ from .deps import blocked_tasks as _blocked_tasks
 from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
 from .deps import next_task as _next_task
 from .deps import task_tree as _task_tree
-from .tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
+from .tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +52,7 @@ async def create_task(
 
     title: Task title (required)
     priority: P1-P4 (default P3)
-    assignee: 'me' or 'agent' (default me; legacy 'claude' still accepted as a synonym for 'agent')
+    assignee: actor handle from your vault's `.task-manager/config.yml` (default 'me'; falls back to 'me'/'agent'/'claude' when no config). Legacy 'claude' is a synonym for 'agent'.
     status: Backlog/Ready/In Progress/Done/Blocked/Cancelled (default Backlog)
     project: Project name or [[wikilink]] (optional)
     area: Area like 'Backend', 'Frontend' (optional)
@@ -97,7 +97,7 @@ async def list_tasks(
     """List tasks with optional filters.
 
     status: filter by status (e.g., 'Ready', 'In Progress')
-    assignee: filter by 'me' or 'agent' (legacy 'claude' is treated as 'agent')
+    assignee: filter by any actor configured in the vault (legacy 'claude' is treated as 'agent')
     priority: filter by P1/P2/P3/P4
     project: filter by project name (partial match)
     """
@@ -155,8 +155,10 @@ async def update_task(
             return f"ERROR: Invalid priority. Must be one of {VALID_PRIORITY}"
         updates["priority"] = priority
     if assignee:
-        if assignee not in VALID_ASSIGNEE:
-            return f"ERROR: Invalid assignee. Must be one of {VALID_ASSIGNEE}"
+        try:
+            store.validate_assignee(assignee)
+        except ValueError as e:
+            return f"ERROR: {e}"
         updates["assignee"] = assignee
     if project:
         updates["project"] = project
