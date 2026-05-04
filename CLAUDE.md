@@ -30,7 +30,7 @@ id: T-042
 title: Fix auth middleware bug
 status: Ready          # Backlog, Ready, In Progress, Done, Blocked, Cancelled
 priority: P2           # P1, P2, P3, P4
-assignee: claude       # me, claude
+assignee: agent        # me, agent (or any actor from .task-manager/config.yml; legacy 'claude' kept as alias)
 project: "[[API Migration]]"
 area: Backend
 created: 2026-04-09
@@ -53,5 +53,10 @@ blocked_by: [T-038, T-040]
 - Cycle detection on every create/update
 - Vault path via `OBSIDIAN_VAULT_PATH` env var
 - Tasks folder defaults to `tasks/` relative to vault; override with `TASK_MANAGER_TASKS_FOLDER` (resolved against vault root, `..` escapes rejected)
+- Actors (the values accepted for `assignee:`) default to `["me", "agent", "claude"]`. Teams can override at `<vault>/.task-manager/config.yml`:
+  ```yaml
+  actors: [me, agent, alice, bob, cursor]
+  ```
+  The list is loaded once at startup by `TaskStore.__init__` (`load_actors()` in `tasks.py`). Validation runs at the write boundary (`TaskStore.create`/`update`/`validate_assignee`); reads are permissive so files with no-longer-configured assignees still load. `claude` always aliases to `agent` if `agent` is in the list.
 - Logging to stderr only (STDIO transport requirement)
 - Checklist progress (`{done, total, pct}`) is computed on read from the body and attached to tool output only when there's at least one checkbox. `tick_item` flips a box in place; `complete_task` is still explicit even when 100%.

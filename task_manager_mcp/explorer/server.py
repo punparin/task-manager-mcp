@@ -22,7 +22,7 @@ from ..deps import blocked_tasks as _blocked_tasks
 from ..deps import is_unblocked, what_unblocks
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
-from ..tasks import VALID_ASSIGNEE, VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
+from ..tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,7 +109,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "task_count": len(all_tasks),
             "valid_status": VALID_STATUS,
             "valid_priority": VALID_PRIORITY,
-            "valid_assignee": VALID_ASSIGNEE,
+            "valid_assignee": store.actors,
             "version": _package_version(),
         }
 
@@ -282,8 +282,11 @@ def create_app(vault_path: str | Path) -> FastAPI:
         updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
         if "priority" in updates and updates["priority"] not in VALID_PRIORITY:
             raise HTTPException(422, f"Invalid priority. Must be one of {VALID_PRIORITY}")
-        if "assignee" in updates and updates["assignee"] not in VALID_ASSIGNEE:
-            raise HTTPException(422, f"Invalid assignee. Must be one of {VALID_ASSIGNEE}")
+        if "assignee" in updates:
+            try:
+                store.validate_assignee(updates["assignee"])
+            except ValueError as e:
+                raise HTTPException(422, str(e))
 
         try:
             task = store.update(task_id, **updates)
@@ -299,8 +302,10 @@ def create_app(vault_path: str | Path) -> FastAPI:
     def create_task(payload: TaskCreate):
         if payload.priority not in VALID_PRIORITY:
             raise HTTPException(422, f"Invalid priority. Must be one of {VALID_PRIORITY}")
-        if payload.assignee not in VALID_ASSIGNEE:
-            raise HTTPException(422, f"Invalid assignee. Must be one of {VALID_ASSIGNEE}")
+        try:
+            store.validate_assignee(payload.assignee)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
         if payload.status not in VALID_STATUS:
             raise HTTPException(422, f"Invalid status. Must be one of {VALID_STATUS}")
         try:
