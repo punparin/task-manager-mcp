@@ -5,6 +5,8 @@ you mostly SSH to a Pi and want a real GUI for triage instead of
 slash commands. Same vault, same `tasks/` folder, same frontmatter —
 Explorer just renders it.
 
+![Explorer demo](./explorer-demo.gif)
+
 ## Features
 
 - Drag-and-drop between lanes (Backlog → Ready → In Progress →
