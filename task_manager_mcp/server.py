@@ -476,20 +476,59 @@ async def list_audit(since: str = "", task_id: str = "", limit: int = 50) -> str
 
 @mcp.tool()
 async def validate_dependencies() -> str:
-    """Check the entire task graph for cycles and missing dependencies."""
+    """Audit the whole vault for graph + integrity issues, grouped by category.
+
+    Catches:
+    - Cycles and missing `blocked_by` references (graph)
+    - In Progress tasks with no assignee (workflow)
+    - `blocked_by` entries pointing to Cancelled tasks (graph hygiene —
+      the dep is technically satisfied, but the link is rot worth surfacing)
+    - `completed:` set on a task whose status isn't Done (state drift)
+    """
     all_tasks = {t.id: t for t in store.all()}
-    issues = []
+
+    cycles_seen: set[tuple[str, ...]] = set()
+    graph_issues: list[str] = []
+    workflow_issues: list[str] = []
+    state_drift: list[str] = []
+
     for tid, task in all_tasks.items():
         for dep in task.blocked_by:
             if dep not in all_tasks:
-                issues.append(f"{tid} references missing task: {dep}")
+                graph_issues.append(f"{tid} references missing task: {dep}")
+            elif all_tasks[dep].status == "Cancelled":
+                graph_issues.append(
+                    f"{tid} blocked_by {dep} is Cancelled (dep satisfied but link is dead)"
+                )
         cycle = detect_cycle(store, tid, task.blocked_by)
         if cycle:
-            issues.append(f"Cycle detected: {' → '.join(cycle)}")
+            # Normalize so the same cycle reported from any node collapses
+            # into a single entry — DFS otherwise reports it once per
+            # participant.
+            normalized = tuple(sorted(set(cycle)))
+            if normalized not in cycles_seen:
+                cycles_seen.add(normalized)
+                graph_issues.append(f"Cycle detected: {' → '.join(cycle)}")
 
-    if not issues:
-        return "Dependency graph is valid. No cycles or missing dependencies."
-    return "\n".join(issues)
+        if task.status == "In Progress" and not task.assignee:
+            workflow_issues.append(f"{tid} is In Progress but has no assignee")
+
+        if task.completed and task.status != "Done":
+            state_drift.append(
+                f"{tid} has completed={task.completed} but status={task.status}"
+            )
+
+    sections: list[str] = []
+    if graph_issues:
+        sections.append("Graph:\n  " + "\n  ".join(graph_issues))
+    if workflow_issues:
+        sections.append("Workflow:\n  " + "\n  ".join(workflow_issues))
+    if state_drift:
+        sections.append("State drift:\n  " + "\n  ".join(state_drift))
+
+    if not sections:
+        return "Vault is valid. No graph, workflow, or state-drift issues."
+    return "\n\n".join(sections)
 
 
 if __name__ == "__main__":

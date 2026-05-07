@@ -136,3 +136,56 @@ class TestListAudit:
     def test_empty_log_message(self, srv):
         out = _run(srv.list_audit())
         assert "No audit entries" in out
+
+
+class TestValidateDependencies:
+    def test_clean_vault_reports_ok(self, srv):
+        srv.store.create(title="A", status="Ready")
+        out = _run(srv.validate_dependencies())
+        assert "Vault is valid" in out
+
+    def test_flags_missing_blocker(self, srv):
+        srv.store.create(title="A")
+        # Hand-corrupt the file to reference a nonexistent dep.
+        t = srv.store.get("T-001")
+        t.blocked_by = ["T-999"]
+        srv.store.save(t)
+
+        out = _run(srv.validate_dependencies())
+        assert "Graph:" in out
+        assert "T-001 references missing task: T-999" in out
+
+    def test_flags_blocked_by_cancelled(self, srv):
+        srv.store.create(title="A", status="Cancelled")
+        srv.store.create(title="B", blocked_by=["T-001"])
+        out = _run(srv.validate_dependencies())
+        assert "T-002 blocked_by T-001 is Cancelled" in out
+
+    def test_flags_in_progress_without_assignee(self, srv):
+        srv.store.create(title="A", status="In Progress")
+        # Strip assignee on disk to simulate a hand-edited frontmatter.
+        t = srv.store.get("T-001")
+        t.assignee = ""
+        srv.store.save(t)
+
+        out = _run(srv.validate_dependencies())
+        assert "Workflow:" in out
+        assert "T-001 is In Progress but has no assignee" in out
+
+    def test_flags_completed_on_non_done_task(self, srv):
+        srv.store.create(title="A", status="Ready")
+        srv.store.update("T-001", completed="2026-04-20")
+        out = _run(srv.validate_dependencies())
+        assert "State drift:" in out
+        assert "T-001 has completed=2026-04-20" in out
+
+    def test_cycle_reported_once(self, srv):
+        # Build A → B → A by creating B first, then closing the loop on A.
+        srv.store.create(title="A")
+        srv.store.create(title="B", blocked_by=["T-001"])
+        t1 = srv.store.get("T-001")
+        t1.blocked_by = ["T-002"]
+        srv.store.save(t1)
+
+        out = _run(srv.validate_dependencies())
+        assert out.count("Cycle detected") == 1
