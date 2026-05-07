@@ -59,12 +59,16 @@ Want a Kanban board for the same tasks? Run the
 - **Cycle detection** — prevents impossible task graphs
 - **Status workflow** — Backlog → Ready → In Progress → Done (with
   Blocked / Cancelled escapes)
-- **Auto-unblock notification** — when you complete a task, the agent
-  tells you what's now ready
+- **Auto-promote on unblock** — when you complete a task, Backlog
+  dependents whose last blocker just cleared flip to Ready in place,
+  and the agent tells you exactly what opened up
 - **Body-as-truth** for checklists and comments — edits in Obsidian
   and tool calls from your agent never drift apart
+- **Append-only audit log** — every status transition is recorded in
+  `<vault>/.task-manager/audit.jsonl` with `last_status_change`
+  mirrored into frontmatter for cheap recency filtering
 
-See [`docs/tools.md`](./docs/tools.md) for the full 16-tool reference.
+See [`docs/tools.md`](./docs/tools.md) for the full 18-tool reference.
 
 ## Documentation
 

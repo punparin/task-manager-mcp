@@ -16,6 +16,7 @@ project: "[[API Migration]]"
 area: Backend
 created: 2026-04-09
 due: 2026-04-15
+last_status_change: 2026-05-07   # auto-stamped on every transition
 blocked_by: [T-038, T-040]
 tags: [backend, performance]
 ---
@@ -71,3 +72,23 @@ editing the body in Obsidian and calling `tick_item` from your agent
 can't drift apart. Completion is still explicit: `complete_task` does
 not auto-fire when all boxes are checked, since marking Done has side
 effects (timestamp, downstream unblock).
+
+## Status history
+
+Every status transition the server triggers — `start_task`,
+`complete_task`, `block_task`, `update_task(status=…)`, the Explorer's
+status patch, and the auto-promote on unblock — appends one JSON line
+to `<vault>/.task-manager/audit.jsonl`:
+
+```json
+{"ts": "2026-05-07T12:34:56", "task_id": "T-042",
+ "old_status": "Ready", "new_status": "In Progress",
+ "actor": "agent"}
+```
+
+The body stays clean; `last_status_change` in the frontmatter answers
+the recency case (e.g. `"what shifted today?"`) without scanning the
+log. For the full timeline use `list_audit(since=, task_id=, limit=)`
+or the Explorer's `GET /api/audit` endpoint. The log is grow-forever;
+operators can rotate / truncate it independently — the per-task
+`last_status_change` field carries forward.

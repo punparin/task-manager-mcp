@@ -67,6 +67,17 @@ assignee). The legacy `claude` value is always accepted as an alias
 for `agent`. Hit `/api/health` on the Explorer to see the resolved
 list.
 
+## Audit log
+
+Every status transition appends one JSON line to
+`<vault>/.task-manager/audit.jsonl`. The file is grow-forever and
+safe to rotate / truncate independently — each task's
+`last_status_change` frontmatter field carries the most recent
+transition date, so the recency case keeps working after a rotation.
+See [`task-format.md`](./task-format.md#status-history) for the
+schema, and use `list_audit(since=, task_id=, limit=)` (MCP) or
+`GET /api/audit` (Explorer) to read it.
+
 ## Register with your MCP client
 
 The server speaks stdio MCP, so it works with any MCP-capable client.
