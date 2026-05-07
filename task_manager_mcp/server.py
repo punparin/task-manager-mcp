@@ -145,10 +145,21 @@ async def update_task(
     due: str = "",
     tags: str = "",
     body: str = "",
+    blocked_by: str = "",
+    completed: str = "",
 ) -> str:
     """Update fields on an existing task. Only provided fields are changed.
 
-    Pass empty string to leave a field unchanged.
+    Pass empty string to leave a field unchanged. For list/optional fields
+    that you want to *clear* rather than ignore, pass the literal sentinel
+    "-":
+
+    - blocked_by="T-001,T-002" replaces the dependency set; "-" clears it.
+      Cycle detection runs against the proposed value, and missing ids
+      are rejected, mirroring create_task / add_blocker.
+    - completed="2026-05-07" sets the completion date; "-" clears it.
+      complete_task is still the right tool for marking Done — this
+      parameter exists for cleanup and backfill, not the happy path.
     """
     updates = {}
     if title:
@@ -177,6 +188,20 @@ async def update_task(
         updates["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
     if body:
         updates["body"] = body
+    if blocked_by:
+        if blocked_by.strip() == "-":
+            new_blockers: list[str] = []
+        else:
+            new_blockers = [b.strip() for b in blocked_by.split(",") if b.strip()]
+            for dep in new_blockers:
+                if not store.exists(dep):
+                    return f"ERROR: blocker {dep} does not exist"
+            cycle = detect_cycle(store, task_id, new_blockers)
+            if cycle:
+                return f"ERROR: cycle detected: {' → '.join(cycle)}"
+        updates["blocked_by"] = new_blockers
+    if completed:
+        updates["completed"] = None if completed.strip() == "-" else completed
 
     prior = store.get(task_id)
     transitioned_to_done = (
