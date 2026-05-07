@@ -2,6 +2,8 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to your agent, and have any MCP-capable agent (Claude Code, Cursor, Cline, Continue, Goose, Windsurf, …) pick up the next workable task automatically.
 
+![Demo](./docs/demo.gif)
+
 ## Install via your agent (easiest)
 
 Open your MCP-capable agent (Claude Code, Cursor, Cline, …), paste:
