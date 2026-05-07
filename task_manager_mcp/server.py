@@ -16,6 +16,7 @@ from .deps import blocked_tasks as _blocked_tasks
 from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
 from .deps import next_task as _next_task
 from .deps import task_tree as _task_tree
+from .history import append_history
 from .tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 logging.basicConfig(
@@ -173,6 +174,14 @@ async def update_task(
     if body:
         updates["body"] = body
 
+    prior = store.get(task_id)
+    if "status" in updates and updates["status"] != prior.status:
+        base_body = updates.get("body", prior.body)
+        updates["body"] = append_history(
+            base_body, prior.status, updates["status"], "agent",
+            date.today().isoformat(),
+        )
+
     task = store.update(task_id, **updates)
     return f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
 
@@ -273,7 +282,11 @@ async def start_task(task_id: str) -> str:
         ]
         return f"ERROR: Cannot start {task_id} — blocked by: {', '.join(unfinished)}"
 
+    old_status = task.status
     task.status = "In Progress"
+    task.body = append_history(
+        task.body, old_status, "In Progress", "agent", date.today().isoformat()
+    )
     store.save(task)
     return f"Started {task_id}: {task.title}"
 
@@ -282,10 +295,14 @@ async def start_task(task_id: str) -> str:
 async def complete_task(task_id: str, completion_notes: str = "") -> str:
     """Mark task as 'Done'. Optionally append completion notes to body."""
     task = store.get(task_id)
+    old_status = task.status
     task.status = "Done"
     task.completed = date.today().isoformat()
     if completion_notes:
         task.body = (task.body or "").rstrip() + f"\n\n## Completion Notes\n{completion_notes}\n"
+    task.body = append_history(
+        task.body, old_status, "Done", "agent", date.today().isoformat()
+    )
     store.save(task)
 
     unblocked = what_unblocks(store, task_id)
@@ -299,8 +316,12 @@ async def complete_task(task_id: str, completion_notes: str = "") -> str:
 async def block_task(task_id: str, reason: str) -> str:
     """Mark task as 'Blocked' with a reason (for external blockers, not task dependencies)."""
     task = store.get(task_id)
+    old_status = task.status
     task.status = "Blocked"
     task.body = (task.body or "").rstrip() + f"\n\n## Blocked\n{reason}\n"
+    task.body = append_history(
+        task.body, old_status, "Blocked", "agent", date.today().isoformat()
+    )
     store.save(task)
     return f"Blocked {task_id}: {reason}"
 

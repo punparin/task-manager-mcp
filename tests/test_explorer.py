@@ -107,6 +107,17 @@ def test_status_patch_to_done_returns_unblocked_list(client):
     assert "T-004" in body["unblocked"]
 
 
+def test_status_patch_appends_history_entry(client):
+    res = client.patch("/api/tasks/T-005/status", json={"status": "Ready"})
+    assert res.status_code == 200
+    detail = client.get("/api/tasks/T-005").json()
+    assert detail["history"]
+    last = detail["history"][-1]
+    assert last["old_status"] == "Backlog"
+    assert last["new_status"] == "Ready"
+    assert last["actor"] == "me"
+
+
 def test_status_patch_invalid_status_rejected(client):
     res = client.patch("/api/tasks/T-001/status", json={"status": "Bogus"})
     assert res.status_code == 422

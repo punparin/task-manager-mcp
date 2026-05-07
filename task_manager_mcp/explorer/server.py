@@ -23,6 +23,7 @@ from ..deps import blocked_tasks as _blocked_tasks
 from ..deps import is_unblocked, what_unblocks
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
+from ..history import append_history, parse_history
 from ..tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
 
 COMPLETION_HEADING = "## Completion Notes"
@@ -196,6 +197,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         out["tree"] = _task_tree(store, task_id)
         out["comments"] = [c.to_dict() for c in parse_comments(task.body)]
         out["completion_notes"] = _extract_section(task.body, COMPLETION_HEADING)
+        out["history"] = [h.to_dict() for h in parse_history(task.body)]
         return out
 
     @app.get("/api/next")
@@ -272,10 +274,16 @@ def create_app(vault_path: str | Path) -> FastAPI:
                 task.body = (task.body or "").rstrip() + (
                     f"\n\n## Completion Notes\n{payload.completion_notes}\n"
                 )
-            store.save(task)
+
+        if payload.status != old_status:
+            task.body = append_history(
+                task.body, old_status, payload.status, "me",
+                date.today().isoformat(),
+            )
+
+        store.save(task)
+        if payload.status == "Done":
             unblocked_ids = [t.id for t in what_unblocks(store, task_id)]
-        else:
-            store.save(task)
 
         all_tasks = {t.id: t for t in store.all()}
         return {
@@ -309,6 +317,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         out["body"] = task.body
         out["comments"] = [c.to_dict() for c in parse_comments(task.body)]
         out["completion_notes"] = _extract_section(task.body, COMPLETION_HEADING)
+        out["history"] = [h.to_dict() for h in parse_history(task.body)]
         return out
 
     @app.patch("/api/tasks/{task_id}/checklist/{index}")
