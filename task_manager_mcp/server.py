@@ -10,6 +10,7 @@ from fastmcp import FastMCP
 
 from .checklist import task_to_dict
 from .checklist import tick as _tick_item
+from .comments import append_comment, parse_comments
 from .deps import blocked_tasks as _blocked_tasks
 from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
 from .deps import next_task as _next_task
@@ -200,6 +201,45 @@ async def tick_item(task_id: str, index: int, checked: bool = True) -> str:
         f"{state} item {index} of {task_id}: {item_text}\n"
         f"progress: {progress.done}/{progress.total} ({progress.pct}%)"
     )
+
+
+@mcp.tool()
+async def add_comment(task_id: str, text: str, author: str = "agent") -> str:
+    """Append a dated comment under the task body's `## Comments` section.
+
+    Use for capturing context as you work — references found, decisions
+    made, follow-ups noticed. Comments are stored as plain markdown
+    bullets so they're visible/editable in Obsidian directly. The
+    section is created on first comment.
+
+    task_id: Task ID (e.g. T-042)
+    text: The note. Newlines are flattened to spaces — keep it to one
+        thought; multi-paragraph context belongs in the body proper.
+    author: Actor handle (default 'agent'). Validated against the same
+        actor list used for `assignee:` (legacy 'claude' aliases to
+        'agent').
+    """
+    if not text.strip():
+        return "ERROR: comment text is empty"
+    try:
+        store.validate_assignee(author)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    task = store.get(task_id)
+    task.body = append_comment(task.body, author, text, date.today().isoformat())
+    store.save(task)
+    count = len(parse_comments(task.body))
+    return f"Added comment to {task_id} ({count} total)"
+
+
+@mcp.tool()
+async def list_comments(task_id: str) -> str:
+    """List all comments on a task, oldest first."""
+    task = store.get(task_id)
+    comments = parse_comments(task.body)
+    if not comments:
+        return f"No comments on {task_id}."
+    return json.dumps([c.to_dict() for c in comments], indent=2, default=str)
 
 
 @mcp.tool()
