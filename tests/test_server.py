@@ -189,3 +189,55 @@ class TestValidateDependencies:
 
         out = _run(srv.validate_dependencies())
         assert out.count("Cycle detected") == 1
+
+
+class TestBulkUpdate:
+    def test_applies_updates_in_order(self, srv):
+        srv.store.create(title="A", status="Backlog", priority="P3")
+        srv.store.create(title="B", status="Backlog", priority="P3")
+        result = _run(srv.bulk_update(updates=[
+            {"task_id": "T-001", "status": "Ready"},
+            {"task_id": "T-002", "priority": "P1", "status": "Ready"},
+        ]))
+        parsed = json.loads(result)
+        assert all(r["ok"] for r in parsed)
+        assert srv.store.get("T-001").status == "Ready"
+        assert srv.store.get("T-002").priority == "P1"
+        assert srv.store.get("T-002").status == "Ready"
+
+    def test_per_entry_failure_does_not_block_others(self, srv):
+        srv.store.create(title="A")
+        result = _run(srv.bulk_update(updates=[
+            {"task_id": "T-001", "priority": "P1"},
+            {"task_id": "T-999", "priority": "P2"},  # missing
+        ]))
+        parsed = json.loads(result)
+        assert parsed[0]["ok"] is True
+        assert parsed[1]["ok"] is False
+        assert srv.store.get("T-001").priority == "P1"
+
+    def test_rejects_unknown_field(self, srv):
+        srv.store.create(title="A")
+        result = _run(srv.bulk_update(updates=[
+            {"task_id": "T-001", "rocket_fuel": "high"},
+        ]))
+        parsed = json.loads(result)
+        assert parsed[0]["ok"] is False
+        assert "unknown fields" in parsed[0]["error"]
+        assert "rocket_fuel" in parsed[0]["error"]
+
+    def test_missing_task_id_reported_with_index(self, srv):
+        result = _run(srv.bulk_update(updates=[{"status": "Ready"}]))
+        parsed = json.loads(result)
+        assert parsed[0]["ok"] is False
+        assert parsed[0]["index"] == 0
+        assert "task_id" in parsed[0]["error"]
+
+    def test_invalid_status_surfaces_underlying_error(self, srv):
+        srv.store.create(title="A")
+        result = _run(srv.bulk_update(updates=[
+            {"task_id": "T-001", "status": "Bogus"},
+        ]))
+        parsed = json.loads(result)
+        assert parsed[0]["ok"] is False
+        assert "Invalid status" in parsed[0]["error"]

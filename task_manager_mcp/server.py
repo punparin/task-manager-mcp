@@ -225,6 +225,61 @@ async def update_task(
     return msg
 
 
+_BULK_UPDATE_FIELDS = {
+    "title", "status", "priority", "assignee",
+    "project", "area", "due", "tags", "body",
+}
+
+
+@mcp.tool()
+async def bulk_update(updates: list[dict]) -> str:
+    """Apply multiple update_task calls in one round trip.
+
+    Each entry must contain `task_id` plus any subset of the fields
+    `update_task` accepts (title, status, priority, assignee, project,
+    area, due, tags, body). Unknown keys are rejected so a typo doesn't
+    silently no-op.
+
+    Updates run in order; per-task failures are reported but do NOT roll
+    back earlier successes — pair with `validate_dependencies` after a
+    big sweep if you want a coherence check.
+
+    Returns a JSON list, each item shaped like:
+        {"task_id": "T-042", "ok": true}
+        {"task_id": "T-043", "ok": false, "error": "..."}
+    """
+    results: list[dict] = []
+    for i, entry in enumerate(updates):
+        if not isinstance(entry, dict) or "task_id" not in entry:
+            results.append({
+                "index": i,
+                "ok": False,
+                "error": "entry missing required 'task_id'",
+            })
+            continue
+        task_id = entry["task_id"]
+        unknown = set(entry) - _BULK_UPDATE_FIELDS - {"task_id"}
+        if unknown:
+            results.append({
+                "task_id": task_id,
+                "ok": False,
+                "error": f"unknown fields: {sorted(unknown)}",
+            })
+            continue
+        kwargs = {k: v for k, v in entry.items() if k in _BULK_UPDATE_FIELDS}
+        try:
+            outcome = await update_task(task_id=task_id, **kwargs)
+        except Exception as e:  # store-level errors (FileNotFoundError, ValueError, …)
+            results.append({"task_id": task_id, "ok": False, "error": str(e)})
+            continue
+        if outcome.startswith("ERROR:"):
+            results.append({"task_id": task_id, "ok": False, "error": outcome[7:].strip()})
+        else:
+            results.append({"task_id": task_id, "ok": True})
+
+    return json.dumps(results, indent=2, default=str)
+
+
 @mcp.tool()
 async def tick_item(task_id: str, index: int, checked: bool = True) -> str:
     """Check or uncheck a checklist item in the task body (1-based index).
