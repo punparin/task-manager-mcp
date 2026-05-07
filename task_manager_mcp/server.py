@@ -13,7 +13,12 @@ from .checklist import task_to_dict
 from .checklist import tick as _tick_item
 from .comments import append_comment, parse_comments
 from .deps import blocked_tasks as _blocked_tasks
-from .deps import detect_cycle, is_unblocked, render_tree, what_unblocks
+from .deps import (
+    dependents_now_workable,
+    detect_cycle,
+    is_unblocked,
+    render_tree,
+)
 from .deps import next_task as _next_task
 from .deps import task_tree as _task_tree
 from .tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
@@ -173,8 +178,21 @@ async def update_task(
     if body:
         updates["body"] = body
 
+    prior = store.get(task_id)
+    transitioned_to_done = (
+        updates.get("status") == "Done" and prior.status != "Done"
+    )
+
     task = store.update(task_id, **updates)
-    return f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+    msg = f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+
+    if transitioned_to_done:
+        promoted, unblocked = _resolve_dependents_after_terminal(task_id)
+        if unblocked:
+            msg += f"\n\nUnblocked: {', '.join(t.id + ' (' + t.title + ')' for t in unblocked)}"
+        if promoted:
+            msg += f"\n\nPromoted to Ready: {', '.join(t.id + ' (' + t.title + ')' for t in promoted)}"
+    return msg
 
 
 @mcp.tool()
@@ -288,11 +306,33 @@ async def complete_task(task_id: str, completion_notes: str = "") -> str:
         task.body = (task.body or "").rstrip() + f"\n\n## Completion Notes\n{completion_notes}\n"
     store.save(task)
 
-    unblocked = what_unblocks(store, task_id)
+    promoted, unblocked = _resolve_dependents_after_terminal(task_id)
     msg = f"Completed {task_id}: {task.title}"
     if unblocked:
         msg += f"\n\nUnblocked: {', '.join(t.id + ' (' + t.title + ')' for t in unblocked)}"
+    if promoted:
+        msg += f"\n\nPromoted to Ready: {', '.join(t.id + ' (' + t.title + ')' for t in promoted)}"
     return msg
+
+
+def _resolve_dependents_after_terminal(task_id: str):
+    """Promote Backlog dependents to Ready and return (promoted, already_ready).
+
+    Run after saving `task_id` with a terminal status (Done/Cancelled).
+    Backlog dependents whose remaining blockers are all terminal are
+    promoted in place; Ready dependents are returned untouched so the
+    caller can announce them as "now workable".
+    """
+    promoted = []
+    already_ready = []
+    for dep in dependents_now_workable(store, task_id):
+        if dep.status == "Backlog":
+            dep.status = "Ready"
+            store.save(dep)
+            promoted.append(dep)
+        elif dep.status == "Ready":
+            already_ready.append(dep)
+    return promoted, already_ready
 
 
 @mcp.tool()

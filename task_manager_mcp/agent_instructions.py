@@ -47,8 +47,10 @@ complete_task(T-042)          ← announces unblocked downstream tasks
 - `start_task` is optional for trivial work — Backlog → Ready →
   In Progress is the formal flow, but going straight to
   `complete_task` works.
-- `complete_task` returns `unblocked: [...]`. Surface that to the
-  user so they know what just opened up.
+- `complete_task` returns `unblocked: [...]` (already-Ready dependents
+  whose blockers cleared) and `promoted: [...]` (Backlog dependents
+  auto-flipped to Ready because all their blockers are now terminal).
+  Surface both so the user sees what just opened up.
 - Never set `status: Done` via `update_task` directly. `complete_task`
   also writes `completed:` and computes the unblock list — bypassing
   it leaves the graph half-resolved.

@@ -105,6 +105,28 @@ def test_status_patch_to_done_returns_unblocked_list(client):
     assert body["task"]["status"] == "Done"
     assert body["task"]["completed"]  # auto-stamped
     assert "T-004" in body["unblocked"]
+    assert body["promoted"] == []  # T-004 was already Ready, not promoted
+
+
+def test_status_patch_to_done_promotes_backlog_dependent(client, vault):
+    """Backlog dependents whose blockers all clear should auto-flip to Ready."""
+    # Add a Backlog task that only depends on T-002.
+    store = TaskStore(vault)
+    store.create(
+        title="Cache eviction",
+        status="Backlog",
+        priority="P2",
+        assignee="claude",
+        blocked_by=["T-002"],
+    )
+
+    res = client.patch("/api/tasks/T-002/status", json={"status": "Done"})
+    assert res.status_code == 200
+    body = res.json()
+    assert "T-006" in body["promoted"]
+    # And the on-disk task is actually Ready now.
+    promoted = TaskStore(vault).get("T-006")
+    assert promoted.status == "Ready"
 
 
 def test_status_patch_invalid_status_rejected(client):
