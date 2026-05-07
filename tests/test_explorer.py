@@ -237,3 +237,73 @@ def test_tick_checklist_no_items_returns_422(client):
     # T-005 has no body, so there are no items to flip.
     res = client.patch("/api/tasks/T-005/checklist/1", json={"checked": True})
     assert res.status_code == 422
+
+
+# ── Comments + completion notes ─────────────────────────────────────────
+
+
+def test_add_comment_appends_under_section(client):
+    res = client.post(
+        "/api/tasks/T-003/comments",
+        json={"text": "checked the auth path, line 142", "author": "agent"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["comment_count"] == 1
+    assert body["comments"] == [
+        {"date": body["comments"][0]["date"], "author": "agent", "text": "checked the auth path, line 142"}
+    ]
+    assert "## Comments" in body["body"]
+
+
+def test_add_comment_accumulates(client):
+    client.post("/api/tasks/T-003/comments", json={"text": "first", "author": "me"})
+    client.post("/api/tasks/T-003/comments", json={"text": "second", "author": "agent"})
+    body = client.get("/api/tasks/T-003").json()
+    assert body["comment_count"] == 2
+    assert [c["author"] for c in body["comments"]] == ["me", "agent"]
+    # Body has exactly one Comments heading regardless of count.
+    assert body["body"].count("## Comments") == 1
+
+
+def test_add_comment_empty_text_rejected(client):
+    res = client.post("/api/tasks/T-003/comments", json={"text": "   ", "author": "me"})
+    assert res.status_code == 422
+
+
+def test_add_comment_invalid_author_rejected(client):
+    res = client.post("/api/tasks/T-003/comments", json={"text": "hi", "author": "ghost"})
+    assert res.status_code == 422
+
+
+def test_add_comment_unknown_task_404(client):
+    res = client.post("/api/tasks/T-999/comments", json={"text": "hi", "author": "me"})
+    assert res.status_code == 404
+
+
+def test_get_task_returns_parsed_comments_and_completion_notes(client):
+    # Add a comment and complete with notes; GET should surface both.
+    client.post("/api/tasks/T-002/comments", json={"text": "needs follow-up", "author": "me"})
+    client.patch(
+        "/api/tasks/T-002/status",
+        json={"status": "Done", "completion_notes": "shipped via PR #123"},
+    )
+    body = client.get("/api/tasks/T-002").json()
+    assert body["completion_notes"] == "shipped via PR #123"
+    assert body["comment_count"] == 1
+    assert body["comments"][0]["text"] == "needs follow-up"
+
+
+def test_list_tasks_includes_comment_count(client):
+    client.post("/api/tasks/T-003/comments", json={"text": "note", "author": "me"})
+    payload = next(
+        t for t in client.get("/api/tasks").json()["tasks"] if t["id"] == "T-003"
+    )
+    assert payload["comment_count"] == 1
+
+
+def test_get_task_with_no_comments_or_notes(client):
+    body = client.get("/api/tasks/T-005").json()
+    assert body["comments"] == []
+    assert body["completion_notes"] == ""
+    assert "comment_count" not in body

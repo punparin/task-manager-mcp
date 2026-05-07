@@ -18,11 +18,34 @@ from pydantic import BaseModel, Field
 
 from ..checklist import task_to_dict as _task_to_dict
 from ..checklist import tick as _tick
+from ..comments import append_comment, parse_comments
 from ..deps import blocked_tasks as _blocked_tasks
 from ..deps import is_unblocked, what_unblocks
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
 from ..tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
+
+COMPLETION_HEADING = "## Completion Notes"
+
+
+def _extract_section(body: str, heading: str) -> str:
+    """Return the prose text under a `## Heading` until the next `## ` or EOF.
+
+    Used for surfacing free-form sections (currently `## Completion Notes`)
+    in their own UI panel without forcing the consumer to re-parse the
+    body. Returns an empty string when the heading is absent.
+    """
+    lines = (body or "").splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == heading)
+    except StopIteration:
+        return ""
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].lstrip().startswith("## "):
+            end = i
+            break
+    return "\n".join(lines[start + 1:end]).strip()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +96,11 @@ class TaskCreate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     blocked_by: list[str] = Field(default_factory=list)
     body: str = ""
+
+
+class CommentCreate(BaseModel):
+    text: str
+    author: str = "me"
 
 
 def create_app(vault_path: str | Path) -> FastAPI:
@@ -166,6 +194,8 @@ def create_app(vault_path: str | Path) -> FastAPI:
         out = _task_payload(task, all_tasks)
         out["body"] = task.body
         out["tree"] = _task_tree(store, task_id)
+        out["comments"] = [c.to_dict() for c in parse_comments(task.body)]
+        out["completion_notes"] = _extract_section(task.body, COMPLETION_HEADING)
         return out
 
     @app.get("/api/next")
@@ -253,6 +283,33 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "old_status": old_status,
             "unblocked": unblocked_ids,
         }
+
+    @app.post("/api/tasks/{task_id}/comments")
+    def add_task_comment(task_id: str, payload: CommentCreate):
+        """Append a dated comment under the body's `## Comments` section.
+
+        Mirrors the MCP `add_comment` tool — same body-is-source-of-truth
+        store, so a comment added here shows up immediately for the agent
+        and vice versa.
+        """
+        if not payload.text.strip():
+            raise HTTPException(422, "comment text is empty")
+        try:
+            store.validate_assignee(payload.author)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        try:
+            task = store.get(task_id)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Task not found: {task_id}")
+        task.body = append_comment(task.body, payload.author, payload.text, date.today().isoformat())
+        store.save(task)
+        all_tasks = {t.id: t for t in store.all()}
+        out = _task_payload(task, all_tasks)
+        out["body"] = task.body
+        out["comments"] = [c.to_dict() for c in parse_comments(task.body)]
+        out["completion_notes"] = _extract_section(task.body, COMPLETION_HEADING)
+        return out
 
     @app.patch("/api/tasks/{task_id}/checklist/{index}")
     def tick_checklist(task_id: str, index: int, payload: ChecklistTick):
