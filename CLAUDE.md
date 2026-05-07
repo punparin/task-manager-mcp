@@ -18,6 +18,7 @@ OBSIDIAN_VAULT_PATH=/path/to/vault .venv/bin/python -m task_manager_mcp
 - `task_manager_mcp/tasks.py` — Task dataclass, status/priority enums, file I/O
 - `task_manager_mcp/deps.py` — Dependency resolver, cycle detection, next_task algorithm
 - `task_manager_mcp/checklist.py` — Body checklist parser (`- [ ]` / `- [x]`), progress rollup, `tick()` mutation. Progress is derived on read — never persisted in frontmatter — so the body is the single source of truth.
+- `task_manager_mcp/comments.py` — Dated comment thread under a `## Comments` section in the task body. `append_comment()` creates the section on first call, `parse_comments()` extracts back to dicts. Same body-is-truth pattern as checklist — comments aren't mirrored to frontmatter.
 - `task_manager_mcp/explorer/` — FastAPI sidecar serving a drag-and-drop Kanban UI over the same vault. `pip install -e ".[explorer]"` then `python -m task_manager_mcp.explorer --host 0.0.0.0 --port 8765`. Mutations write straight to task frontmatter, so the MCP and the UI share state.
 
 ## Task Format

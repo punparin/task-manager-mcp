@@ -149,6 +149,8 @@ Task lists alone aren't enough — you need to know **what to work on first**. T
 | `get_task` | Read full task details + body |
 | `update_task` | Change any task field |
 | `tick_item` | Check/uncheck a checklist item in the body (1-based index) |
+| `add_comment` | Append a dated note under the task body's `## Comments` section |
+| `list_comments` | List all comments on a task |
 | `add_blocker` | Add a dependency (with cycle check) |
 | `start_task` | Mark In Progress (verifies deps satisfied) |
 | `complete_task` | Mark Done + announce what's unblocked |
@@ -192,6 +194,27 @@ Add token-bucket rate limiting to the v3 API endpoints.
 - [ ] Rate limit headers returned
 - [ ] Tests cover bucket exhaustion
 ```
+
+## Comments
+
+Use `add_comment(task_id, text, author)` to leave a dated note under
+the task body's `## Comments` section — references found, decisions
+made, follow-ups noticed. Comments are plain markdown bullets so they
+render natively in Obsidian and can be edited there directly:
+
+```markdown
+## Comments
+
+- **2026-05-07 agent**: looked at auth middleware, line 142 is the bug
+- **2026-05-08 me**: also need OAuth coverage, talked to alice
+```
+
+`author` is validated against the same actor list as `assignee:` (so
+`me`, `agent`, or any custom actors from `.task-manager/config.yml`),
+and defaults to `agent`. The section is created on first comment.
+`get_task` returns parsed comments under a `comments` array, and
+`list_tasks` / `next_task` show a `comment_count` so triage can see
+which tasks have notes without expanding them.
 
 ## Checklist Progress
 

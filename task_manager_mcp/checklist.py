@@ -101,14 +101,22 @@ def task_to_dict(task: "Task", *, include_body: bool = False) -> dict:
 
     Omits the `progress` key when the body has no checklist items so
     consumers can treat its presence as a signal that progress is
-    meaningful.
+    meaningful. Same convention for `comment_count` and (when
+    `include_body` is set) `comments`.
     """
+    from .comments import parse_comments
+
     out = task.to_dict()
     progress = parse_checklist(task.body)
     if progress.total > 0:
         out["progress"] = progress.to_dict()
+    comments = parse_comments(task.body)
+    if comments:
+        out["comment_count"] = len(comments)
     if include_body:
         out["body"] = task.body
+        if comments:
+            out["comments"] = [c.to_dict() for c in comments]
     return out
 
 
