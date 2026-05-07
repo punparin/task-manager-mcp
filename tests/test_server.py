@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 
 import pytest
 
+from task_manager_mcp.audit import read_audit
 from task_manager_mcp.tasks import TaskStore
 
 
@@ -72,3 +74,65 @@ class TestUpdateTaskCompleted:
         result = _run(srv.update_task(task_id="T-001", completed="-"))
         assert "Updated T-001" in result
         assert srv.store.get("T-001").completed is None
+
+
+class TestStatusAudit:
+    def test_start_task_records_transition(self, srv, tmp_path):
+        srv.store.create(title="A", status="Ready")
+        _run(srv.start_task(task_id="T-001"))
+        entries = read_audit(tmp_path, task_id="T-001")
+        assert len(entries) == 1
+        assert entries[0]["old_status"] == "Ready"
+        assert entries[0]["new_status"] == "In Progress"
+        assert entries[0]["actor"] == "agent"
+        assert srv.store.get("T-001").last_status_change
+
+    def test_complete_task_records_transition(self, srv, tmp_path):
+        srv.store.create(title="A", status="In Progress")
+        _run(srv.complete_task(task_id="T-001"))
+        entries = read_audit(tmp_path, task_id="T-001")
+        assert entries[0]["new_status"] == "Done"
+
+    def test_block_task_records_transition(self, srv, tmp_path):
+        srv.store.create(title="A", status="Ready")
+        _run(srv.block_task(task_id="T-001", reason="waiting on legal"))
+        entries = read_audit(tmp_path, task_id="T-001")
+        assert entries[0]["new_status"] == "Blocked"
+
+    def test_update_task_status_change_records(self, srv, tmp_path):
+        srv.store.create(title="A", status="Backlog")
+        _run(srv.update_task(task_id="T-001", status="Ready"))
+        entries = read_audit(tmp_path, task_id="T-001")
+        assert entries[0]["old_status"] == "Backlog"
+        assert entries[0]["new_status"] == "Ready"
+        assert srv.store.get("T-001").last_status_change
+
+    def test_update_task_no_status_change_no_log_entry(self, srv, tmp_path):
+        srv.store.create(title="A", status="Backlog")
+        _run(srv.update_task(task_id="T-001", priority="P1"))
+        assert read_audit(tmp_path, task_id="T-001") == []
+
+    def test_auto_promote_records_transition(self, srv, tmp_path):
+        srv.store.create(title="Blocker", status="In Progress")
+        srv.store.create(title="Dependent", status="Backlog", blocked_by=["T-001"])
+        _run(srv.complete_task(task_id="T-001"))
+        promoted_entries = read_audit(tmp_path, task_id="T-002")
+        assert len(promoted_entries) == 1
+        assert promoted_entries[0]["new_status"] == "Ready"
+
+
+class TestListAudit:
+    def test_filter_by_since(self, srv):
+        srv.store.create(title="A", status="Backlog")
+        _run(srv.update_task(task_id="T-001", status="Ready"))
+        out = _run(srv.list_audit(since="2020-01-01"))
+        parsed = json.loads(out)
+        assert any(e["task_id"] == "T-001" for e in parsed)
+
+    def test_invalid_since_returns_error(self, srv):
+        out = _run(srv.list_audit(since="last week"))
+        assert out.startswith("ERROR:")
+
+    def test_empty_log_message(self, srv):
+        out = _run(srv.list_audit())
+        assert "No audit entries" in out

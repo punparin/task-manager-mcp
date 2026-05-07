@@ -29,5 +29,6 @@ def test_instructions_reference_load_bearing_tools():
         "task_tree",
         "block_task",
         "validate_dependencies",
+        "list_audit",
     ):
         assert phrase in INSTRUCTIONS, phrase

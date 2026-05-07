@@ -30,6 +30,11 @@ Operating rules:
 - "What's blocked?" → `blocked_tasks`. Ready tasks waiting on
   unfinished deps — the queue that would be workable once blockers
   land.
+- "What changed today?" / "what shifted recently?" → `list_audit`.
+  Reads the per-vault status-change log; pass `since="YYYY-MM-DD"` for
+  recency, `task_id="T-042"` to scope to one task. Each task also
+  carries its latest transition date in the `last_status_change`
+  frontmatter field.
 
 ## Workflow flow
 
