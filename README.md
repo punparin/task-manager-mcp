@@ -49,6 +49,8 @@ unblocked.
 Want a Kanban board for the same tasks? Run the
 [Explorer](./docs/explorer.md) sidecar.
 
+![Explorer demo](./docs/explorer-demo.gif)
+
 ## What it does
 
 - **Dependency resolution** — `next_task` returns tasks whose blockers
