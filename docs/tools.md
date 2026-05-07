@@ -14,7 +14,7 @@ dependency resolution.
 | | `add_comment` | Append a dated note under the task body's `## Comments` section |
 | | `list_comments` | List all comments on a task |
 | Dependencies | `add_blocker` | Add a dependency (with cycle check) |
-| | `task_tree` | Show dependency tree as ASCII |
+| | `task_tree` | Show dependency tree as ASCII. `direction="blockers"` (default — what this waits on), `"dependents"` (what waits on this), or `"both"` |
 | | `validate_dependencies` | Audit graph (cycles, missing refs) **and** workflow / state drift — In-Progress-without-assignee, `blocked_by` pointing to Cancelled, `completed:` set on a non-Done task |
 | | `blocked_tasks` | List Ready tasks waiting on dependencies |
 | Workflow | `start_task` | Mark In Progress (verifies deps satisfied) |
