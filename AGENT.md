@@ -13,9 +13,6 @@ Two ways to wire this up:
 2. **Agents configured via explicit system prompt** — paste the same
    block into your agent's prompt config.
 
-The architecture / running notes at the bottom are for contributors
-working in *this* repo.
-
 ## System-prompt block
 
 Paste the section below verbatim into your agent's system prompt or
@@ -158,72 +155,3 @@ read.
 - **Comments are dated, plain markdown bullets** under `## Comments`.
   Both Obsidian-side hand edits and `add_comment` calls round-trip
   cleanly; don't worry about clobbering each other.
-
----
-
-# Contributing to this repo
-
-Everything below is for contributors working in this codebase, not
-for end-users wiring an agent against it.
-
-## Running
-
-```bash
-OBSIDIAN_VAULT_PATH=/path/to/vault .venv/bin/python -m task_manager_mcp
-```
-
-## Testing
-
-```bash
-.venv/bin/pytest tests/ -v
-```
-
-## Architecture
-
-- `task_manager_mcp/server.py` — FastMCP server, tool definitions
-- `task_manager_mcp/tasks.py` — Task dataclass, status/priority enums, file I/O
-- `task_manager_mcp/deps.py` — Dependency resolver, cycle detection,
-  `next_task` algorithm
-- `task_manager_mcp/checklist.py` — Body checklist parser
-  (`- [ ]` / `- [x]`), progress rollup, `tick()` mutation. Progress
-  is derived on read — never persisted in frontmatter — so the body
-  is the single source of truth.
-- `task_manager_mcp/comments.py` — Dated comment thread under a
-  `## Comments` section in the task body. `append_comment()` creates
-  the section on first call, `parse_comments()` extracts back to
-  dicts. Same body-is-truth pattern as checklist — comments aren't
-  mirrored to frontmatter.
-- `task_manager_mcp/explorer/` — FastAPI sidecar serving a
-  drag-and-drop Kanban UI over the same vault.
-  `pip install -e ".[explorer]"` then
-  `python -m task_manager_mcp.explorer --host 0.0.0.0 --port 8765`.
-  Mutations write straight to task frontmatter, so the MCP and the
-  UI share state.
-
-## Key conventions
-
-- Task IDs auto-incremented: T-001, T-002, …
-- `next_task` returns highest-priority Ready task with all
-  dependencies satisfied
-- Cycle detection on every create/update
-- Vault path via `OBSIDIAN_VAULT_PATH` env var
-- Tasks folder defaults to `tasks/` relative to vault; override with
-  `TASK_MANAGER_TASKS_FOLDER` (resolved against vault root, `..`
-  escapes rejected)
-- Actors (the values accepted for `assignee:`) default to
-  `["me", "agent", "claude"]`. Teams can override at
-  `<vault>/.task-manager/config.yml`:
-  ```yaml
-  actors: [me, agent, alice, bob, cursor]
-  ```
-  The list is loaded once at startup by `TaskStore.__init__`
-  (`load_actors()` in `tasks.py`). Validation runs at the write
-  boundary (`TaskStore.create` / `update` / `validate_assignee`);
-  reads are permissive so files with no-longer-configured assignees
-  still load. `claude` always aliases to `agent` if `agent` is in
-  the list.
-- Logging to stderr only (STDIO transport requirement)
-- Checklist progress (`{done, total, pct}`) is computed on read
-  from the body and attached to tool output only when there's at
-  least one checkbox. `tick_item` flips a box in place;
-  `complete_task` is still explicit even when 100%.
