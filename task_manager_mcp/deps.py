@@ -90,8 +90,34 @@ def next_task(store: TaskStore, assignee: Optional[str] = None) -> Optional[Task
     return sorted(candidates, key=sort_key)[0]
 
 
-def task_tree(store: TaskStore, task_id: str, depth: int = 0, _seen: Optional[set] = None) -> dict:
-    """Build dependency tree showing what blocks this task."""
+def _build_reverse_deps(all_tasks: dict[str, Task]) -> dict[str, list[str]]:
+    """task_id → ids of tasks that list task_id in their blocked_by."""
+    reverse: dict[str, list[str]] = {}
+    for t in all_tasks.values():
+        for blocker in t.blocked_by:
+            reverse.setdefault(blocker, []).append(t.id)
+    return reverse
+
+
+def task_tree(
+    store: TaskStore,
+    task_id: str,
+    direction: str = "blockers",
+    depth: int = 0,
+    _seen: Optional[set] = None,
+    _reverse_deps: Optional[dict[str, list[str]]] = None,
+) -> dict:
+    """Build a dependency tree rooted at task_id.
+
+    direction='blockers' walks downstream — what task_id is waiting on
+    (its `blocked_by`, transitively). direction='dependents' walks
+    upstream — tasks whose `blocked_by` contain task_id, transitively.
+    """
+    if direction not in {"blockers", "dependents"}:
+        raise ValueError(
+            f"direction must be 'blockers' or 'dependents', got {direction!r}"
+        )
+
     _seen = _seen or set()
     if task_id in _seen:
         return {"id": task_id, "title": "(cycle)", "status": "?", "depth": depth, "deps": []}
@@ -102,13 +128,23 @@ def task_tree(store: TaskStore, task_id: str, depth: int = 0, _seen: Optional[se
     except FileNotFoundError:
         return {"id": task_id, "title": "(missing)", "status": "?", "depth": depth, "deps": []}
 
+    if direction == "blockers":
+        children = list(t.blocked_by)
+    else:
+        if _reverse_deps is None:
+            _reverse_deps = _build_reverse_deps({x.id: x for x in store.all()})
+        children = list(_reverse_deps.get(task_id, []))
+
     return {
         "id": t.id,
         "title": t.title,
         "status": t.status,
         "priority": t.priority,
         "depth": depth,
-        "deps": [task_tree(store, dep, depth + 1, _seen) for dep in t.blocked_by],
+        "deps": [
+            task_tree(store, c, direction, depth + 1, _seen, _reverse_deps)
+            for c in children
+        ],
     }
 
 

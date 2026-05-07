@@ -241,3 +241,43 @@ class TestBulkUpdate:
         parsed = json.loads(result)
         assert parsed[0]["ok"] is False
         assert "Invalid status" in parsed[0]["error"]
+
+
+class TestTaskTreeDirection:
+    def test_blockers_default(self, srv):
+        srv.store.create(title="A", status="Done")
+        srv.store.create(title="B", blocked_by=["T-001"])
+        result = _run(srv.task_tree(task_id="T-002"))
+        assert "T-002" in result
+        assert "T-001" in result
+        # Default ('blockers') uses the single-tree renderer, no headers.
+        assert "Blockers (waiting on)" not in result
+        assert "Dependents" not in result
+
+    def test_dependents_only(self, srv):
+        srv.store.create(title="A")
+        srv.store.create(title="B", blocked_by=["T-001"])
+        result = _run(srv.task_tree(task_id="T-001", direction="dependents"))
+        assert "T-002" in result
+        assert "Dependents" not in result  # single-tree mode
+
+    def test_both_renders_two_sections(self, srv):
+        srv.store.create(title="A", status="Done")
+        srv.store.create(title="B", blocked_by=["T-001"])
+        srv.store.create(title="C", blocked_by=["T-002"])
+        result = _run(srv.task_tree(task_id="T-002", direction="both"))
+        assert "Blockers (waiting on):" in result
+        assert "Dependents (waiting on this):" in result
+        assert "T-001" in result  # blocker shown
+        assert "T-003" in result  # dependent shown
+
+    def test_both_marks_empty_sides(self, srv):
+        srv.store.create(title="solo")
+        result = _run(srv.task_tree(task_id="T-001", direction="both"))
+        assert "Blockers (waiting on):\n  (none)" in result
+        assert "Dependents (waiting on this):\n  (none)" in result
+
+    def test_invalid_direction(self, srv):
+        srv.store.create(title="A")
+        result = _run(srv.task_tree(task_id="T-001", direction="sideways"))
+        assert result.startswith("ERROR:")

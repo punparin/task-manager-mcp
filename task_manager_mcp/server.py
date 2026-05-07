@@ -482,11 +482,43 @@ async def my_tasks(assignee: str = "me") -> str:
     }, indent=2, default=str)
 
 
+_TREE_DIRECTIONS = {"blockers", "dependents", "both"}
+
+
 @mcp.tool()
-async def task_tree(task_id: str) -> str:
-    """Show the dependency tree for a task — what blocks it and its blockers."""
-    tree = _task_tree(store, task_id)
-    return render_tree(tree)
+async def task_tree(task_id: str, direction: str = "blockers") -> str:
+    """Show a transitive dependency tree rooted at the task, as ASCII.
+
+    direction:
+      - "blockers" (default): tasks the root is waiting on (downstream).
+      - "dependents": tasks waiting on the root (upstream).
+      - "both": both trees, separated.
+    """
+    if direction not in _TREE_DIRECTIONS:
+        return f"ERROR: direction must be one of {sorted(_TREE_DIRECTIONS)}"
+    if direction != "both":
+        return render_tree(_task_tree(store, task_id, direction=direction))
+
+    blockers = _task_tree(store, task_id, direction="blockers")
+    dependents = _task_tree(store, task_id, direction="dependents")
+    root_marker = "✓" if blockers["status"] == "Done" else " "
+    header = f"[{root_marker}] {blockers['id']}: {blockers['title']} ({blockers['status']})"
+
+    def _children_rendered(tree: dict) -> str:
+        deps = tree.get("deps", [])
+        if not deps:
+            return "  (none)"
+        # Render the root + children, then strip the root line so we keep
+        # only the descendants (the root is already in `header`).
+        full = render_tree(tree)
+        first_newline = full.find("\n")
+        return full[first_newline + 1:] if first_newline != -1 else "  (none)"
+
+    return (
+        f"{header}\n\n"
+        f"Blockers (waiting on):\n{_children_rendered(blockers)}\n\n"
+        f"Dependents (waiting on this):\n{_children_rendered(dependents)}"
+    )
 
 
 @mcp.tool()

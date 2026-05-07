@@ -128,6 +128,36 @@ class TestTaskTree:
         tree = task_tree(store, "T-001")
         assert tree["deps"][0]["title"] == "(missing)"
 
+    def test_dependents_direction_walks_upstream(self, store):
+        store.create(title="A")
+        store.create(title="B", blocked_by=["T-001"])
+        store.create(title="C", blocked_by=["T-002"])
+        tree = task_tree(store, "T-001", direction="dependents")
+        assert tree["id"] == "T-001"
+        assert len(tree["deps"]) == 1
+        assert tree["deps"][0]["id"] == "T-002"
+        # Transitive: C waits on B which waits on A.
+        assert tree["deps"][0]["deps"][0]["id"] == "T-003"
+
+    def test_dependents_direction_no_dependents(self, store):
+        store.create(title="A")
+        tree = task_tree(store, "T-001", direction="dependents")
+        assert tree["deps"] == []
+
+    def test_dependents_direction_branching(self, store):
+        store.create(title="A")
+        store.create(title="B", blocked_by=["T-001"])
+        store.create(title="C", blocked_by=["T-001"])
+        tree = task_tree(store, "T-001", direction="dependents")
+        ids = sorted(c["id"] for c in tree["deps"])
+        assert ids == ["T-002", "T-003"]
+
+    def test_invalid_direction_raises(self, store):
+        store.create(title="A")
+        import pytest
+        with pytest.raises(ValueError):
+            task_tree(store, "T-001", direction="sideways")
+
 
 class TestBlockedTasks:
     def test_finds_blocked(self, store):

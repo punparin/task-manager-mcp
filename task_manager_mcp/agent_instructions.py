@@ -87,7 +87,9 @@ complete_task(T-042)          ← announces unblocked downstream tasks
 
 - `task_tree(task_id)` returns an ASCII tree of upstream blockers.
   Use it before saying "this is blocked because…" so you cite the
-  actual chain.
+  actual chain. Pass `direction="dependents"` to walk the other way
+  (what's waiting on this task), or `direction="both"` for impact
+  analysis before cancelling/rescoping.
 - `add_blocker` and `update_task(blocked_by=...)` both run cycle
   detection. If they reject with a cycle error, *don't* silently
   retry with the cycle resolved — tell the user which loop was
