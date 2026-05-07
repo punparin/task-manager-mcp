@@ -20,7 +20,7 @@ from ..checklist import task_to_dict as _task_to_dict
 from ..checklist import tick as _tick
 from ..comments import append_comment, parse_comments
 from ..deps import blocked_tasks as _blocked_tasks
-from ..deps import is_unblocked, what_unblocks
+from ..deps import dependents_now_workable, is_unblocked
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
 from ..tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
@@ -264,6 +264,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         old_status = task.status
         task.status = payload.status
         unblocked_ids: list[str] = []
+        promoted_ids: list[str] = []
 
         if payload.status == "Done":
             if not task.completed:
@@ -273,7 +274,13 @@ def create_app(vault_path: str | Path) -> FastAPI:
                     f"\n\n## Completion Notes\n{payload.completion_notes}\n"
                 )
             store.save(task)
-            unblocked_ids = [t.id for t in what_unblocks(store, task_id)]
+            for dep in dependents_now_workable(store, task_id):
+                if dep.status == "Backlog":
+                    dep.status = "Ready"
+                    store.save(dep)
+                    promoted_ids.append(dep.id)
+                elif dep.status == "Ready":
+                    unblocked_ids.append(dep.id)
         else:
             store.save(task)
 
@@ -282,6 +289,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "task": _task_payload(task, all_tasks),
             "old_status": old_status,
             "unblocked": unblocked_ids,
+            "promoted": promoted_ids,
         }
 
     @app.post("/api/tasks/{task_id}/comments")

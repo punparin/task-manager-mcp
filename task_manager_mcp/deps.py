@@ -162,3 +162,18 @@ def what_unblocks(store: TaskStore, completing_task_id: str) -> list[Task]:
         ):
             unblocked.append(t)
     return unblocked
+
+
+def dependents_now_workable(store: TaskStore, task_id: str) -> list[Task]:
+    """Tasks that depend on task_id and now have all blockers terminal.
+
+    Caller must save task_id with terminal status (Done/Cancelled) BEFORE
+    calling this — the check reads store state. Returns dependents in any
+    status; the caller decides what to do with each (e.g. promote
+    Backlog → Ready, surface Ready ones in an "unblocked" message).
+    """
+    all_tasks = {t.id: t for t in store.all()}
+    return [
+        t for t in all_tasks.values()
+        if task_id in t.blocked_by and is_unblocked(t, all_tasks)
+    ]

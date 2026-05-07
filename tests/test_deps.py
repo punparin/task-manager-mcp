@@ -1,5 +1,6 @@
 from task_manager_mcp.deps import (
     blocked_tasks,
+    dependents_now_workable,
     detect_cycle,
     is_unblocked,
     next_task,
@@ -146,3 +147,32 @@ class TestWhatUnblocks:
         ids = [t.id for t in unblocked]
         assert "T-002" in ids
         assert "T-003" in ids
+
+
+class TestDependentsNowWorkable:
+    def test_returns_only_dependents_with_all_blockers_terminal(self, store):
+        # T-001 is the one we just marked Done.
+        store.create(title="A", status="Done")
+        # T-002 still in flight — used as the "non-terminal" blocker for T-004.
+        store.create(title="B", status="Ready")
+        # T-003: only blocker is T-001 → workable
+        store.create(title="C", status="Backlog", blocked_by=["T-001"])
+        # T-004: still blocked by T-002 (not terminal)
+        store.create(title="D", status="Backlog", blocked_by=["T-001", "T-002"])
+        # T-005: unrelated
+        store.create(title="E", status="In Progress")
+        ids = sorted(t.id for t in dependents_now_workable(store, "T-001"))
+        assert ids == ["T-003"]
+
+    def test_returns_dependents_in_any_status(self, store):
+        store.create(title="A", status="Done")
+        store.create(title="B", status="Backlog", blocked_by=["T-001"])
+        store.create(title="C", status="Ready", blocked_by=["T-001"])
+        store.create(title="D", status="Blocked", blocked_by=["T-001"])
+        ids = sorted(t.id for t in dependents_now_workable(store, "T-001"))
+        assert ids == ["T-002", "T-003", "T-004"]
+
+    def test_skips_non_dependents(self, store):
+        store.create(title="A", status="Done")
+        store.create(title="B", status="Backlog")  # no blocked_by
+        assert dependents_now_workable(store, "T-001") == []
