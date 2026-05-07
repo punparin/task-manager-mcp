@@ -2,6 +2,18 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for task management with **dependency resolution**. Stores tasks as markdown files in an Obsidian vault, lets you queue work, assign tasks to your agent, and have any MCP-capable agent (Claude Code, Cursor, Cline, Continue, Goose, Windsurf, …) pick up the next workable task automatically.
 
+## Install via your agent (easiest)
+
+Open your MCP-capable agent (Claude Code, Cursor, Cline, …), paste:
+
+> Read this and help me install it: <https://github.com/punparin/task-manager-mcp/blob/main/INSTALLATION.md>
+
+The agent will walk you through it — picking Docker vs Python, vault
+path, tasks folder, actor list, scope — and ask before assuming
+anything. See [`INSTALLATION.md`](./INSTALLATION.md) for the full guide.
+
+Prefer to do it by hand? Keep reading.
+
 ## Quickstart
 
 ```bash
