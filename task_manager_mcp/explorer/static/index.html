@@ -308,6 +308,15 @@
       overflow-x: auto;
       white-space: pre-wrap;
     }
+    /* Headings parsed out of the task body itself (## Acceptance criteria, etc).
+       Distinct from the .panel-section h3 labels above each section. */
+    .body-heading {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      margin: 10px 0 4px;
+    }
+    .body-heading:first-child { margin-top: 0; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
     /* Comments + completion notes */
@@ -1002,8 +1011,9 @@
     function renderBody(body) {
       const lines = body.split("\n");
       const ITEM = /^(\s*)([-*])\s+\[([ xX])\]\s+(.+)$/;
+      const HEADING = /^(#{1,6})\s+(.+?)\s*$/;
       const FENCE = /^\s*```/;
-      const segments = []; // [{type: 'pre'|'list', lines: [...]}]
+      const segments = []; // [{type: 'pre'|'list'|'heading', ...}]
       let inFence = false;
       let curList = null;
       let curPre = null;
@@ -1031,15 +1041,25 @@
             checked: m[3] === "x" || m[3] === "X",
             text: m[4],
           });
-        } else {
-          flushList();
-          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+          continue;
         }
+        const h = line.match(HEADING);
+        if (h) {
+          flushPre();
+          flushList();
+          segments.push({ type: "heading", level: h[1].length, text: h[2] });
+          continue;
+        }
+        flushList();
+        (curPre ||= { type: "pre", lines: [] }).lines.push(line);
       }
       flushPre();
       flushList();
       return segments
         .map((seg) => {
+          if (seg.type === "heading") {
+            return `<div class="body-heading">${escapeHtml(seg.text)}</div>`;
+          }
           if (seg.type === "pre") {
             // Trim leading/trailing blank lines so prose chunks don't add visual noise.
             const text = seg.lines.join("\n").replace(/^\n+|\n+$/g, "");
