@@ -77,6 +77,8 @@ See [`docs/tools.md`](./docs/tools.md) for the full 16-tool reference.
   custom tasks folder, custom actors, MCP client registration
 - [`docs/explorer.md`](./docs/explorer.md) — Kanban + dep graph web
   UI, REST endpoints
+- [`AGENT.md`](./AGENT.md) — agent usage patterns, tool-choice
+  rules, ready-to-paste system-prompt block
 - [`INSTALLATION.md`](./INSTALLATION.md) — agent-driven install guide
 
 ## Contributing
