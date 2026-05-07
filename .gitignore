@@ -7,3 +7,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Local-only operator/agent notes — not for public distribution.
+# Runtime agent rules ship via MCP `instructions` from
+# task_manager_mcp/agent_instructions.py.
+AGENT.md

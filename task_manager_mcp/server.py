@@ -8,6 +8,7 @@ from datetime import date
 
 from fastmcp import FastMCP
 
+from .agent_instructions import INSTRUCTIONS as _AGENT_INSTRUCTIONS
 from .checklist import task_to_dict
 from .checklist import tick as _tick_item
 from .comments import append_comment, parse_comments
@@ -30,7 +31,7 @@ if not vault_path:
     sys.exit(1)
 
 store = TaskStore(vault_path)
-mcp = FastMCP("task-manager")
+mcp = FastMCP("task-manager", instructions=_AGENT_INSTRUCTIONS)
 
 
 # ── Create / Read / Update ─────────────────────────────────────────────

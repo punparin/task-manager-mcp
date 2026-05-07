@@ -66,7 +66,7 @@ Include "Closes #N" if it fixes an open issue. Skip the AI-coauthor footers — 
 
 - **Tests for new behavior.** Especially in `deps.py` (next_task, cycle detection), `tasks.py` (task store I/O), and `checklist.py` (progress parsing) — these are the parts where regressions are easiest to introduce.
 - **One logical change per PR.** A bug fix doesn't need surrounding cleanup; a new tool doesn't need to refactor the explorer. Two changes → two PRs.
-- **No new config knobs without docs.** If you're adding an env var or tool argument, document it in the README and (if it's a load-bearing convention) in `AGENT.md`.
+- **No new config knobs without docs.** If you're adding an env var, document it in `README.md`. If you're adding or renaming a tool argument that agents must reach for correctly, update `task_manager_mcp/agent_instructions.py` — that's the runtime payload the server injects via MCP `instructions`.
 - **For Explorer UI changes**, drop a screenshot or short clip in the PR.
 - **Schema-touching PRs** (e.g. new fields in task frontmatter) need a backward-compat story for vaults already populated with the old shape — see how `agent` was added as an alias for the legacy `claude` assignee value (#22) for the pattern.
 
