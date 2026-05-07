@@ -87,7 +87,9 @@ complete_task(T-042)          ← announces unblocked downstream tasks
   use `block_task(task_id, reason)`. The reason string lands on the
   task and shows in `list_tasks(status="Blocked")` triage views.
 - Don't create a task graph cycle. If you're scripting many edits,
-  run `validate_dependencies` afterward as a sanity check.
+  run `validate_dependencies` afterward as a sanity check — it now
+  also flags In-Progress-without-assignee, `completed:` set on a
+  non-Done task, and `blocked_by` pointing to a Cancelled task.
 
 ## Task format (for reading raw markdown)
 
