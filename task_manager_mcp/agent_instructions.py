@@ -63,6 +63,15 @@ complete_task(T-042)          ← announces unblocked downstream tasks
   Done has side effects (timestamp, downstream notifications) — keep
   it explicit.
 
+## Bulk edits
+
+- For sweeping changes across many tasks (backlog grooming, reassigning
+  an area, retagging) use `bulk_update(updates=[{...}, ...])` instead of
+  one `update_task` per row. Each entry takes `task_id` plus any of the
+  same fields. Failures are reported per task; earlier successes don't
+  roll back. After a big sweep, run `validate_dependencies` to confirm
+  the graph is still coherent.
+
 ## Checklists and comments
 
 - Flip a checkbox via `tick_item(task_id, index, checked)` with a
