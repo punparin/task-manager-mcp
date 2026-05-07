@@ -68,12 +68,13 @@ docker run -p 8765:8765 -v /path/to/vault:/vault \
 |---|---|---|
 | `GET` | `/api/health` | Vault path, task count, valid enums |
 | `GET` | `/api/tasks` | List with filters: `?status=&assignee=&priority=&project=&area=`. Returns `next_task_id` |
-| `GET` | `/api/tasks/{id}` | Full detail: body, dep tree, parsed `comments`, extracted `completion_notes`, computed `is_unblocked`, `unfinished_blockers`, `dep_count` |
-| `PATCH` | `/api/tasks/{id}/status` | Body `{status, completion_notes?}`. Validates deps when target is `In Progress`. Returns `{task, old_status, unblocked}` |
+| `GET` | `/api/tasks/{id}` | Full detail: body, dep tree, parsed `comments`, extracted `completion_notes`, status `history` (from audit log), computed `is_unblocked`, `unfinished_blockers`, `dep_count` |
+| `PATCH` | `/api/tasks/{id}/status` | Body `{status, completion_notes?}`. Validates deps when target is `In Progress`. Returns `{task, old_status, unblocked, promoted}` — `promoted` lists Backlog dependents auto-flipped to Ready when the change is to `Done` |
 | `PATCH` | `/api/tasks/{id}/checklist/{index}` | Body `{checked}`. Flips the n-th checkbox in the body (1-based). Mirrors MCP `tick_item` |
 | `POST` | `/api/tasks/{id}/comments` | Body `{text, author?}`. Appends a dated comment under `## Comments`. Mirrors MCP `add_comment` |
 | `PATCH` | `/api/tasks/{id}` | Update fields (title, priority, due, etc.) |
 | `POST` | `/api/tasks` | Create task |
 | `GET` | `/api/next?assignee=` | Same logic as MCP `next_task` |
 | `GET` | `/api/blocked` | Ready tasks waiting on unfinished deps |
+| `GET` | `/api/audit` | Status-change audit log: `?since=YYYY-MM-DD&task_id=&limit=`. Newest first. Mirrors MCP `list_audit` |
 | `GET` | `/api/graph` | Cytoscape-shaped `{nodes, edges}` for the dep graph |

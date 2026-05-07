@@ -53,8 +53,12 @@ stateDiagram-v2
 ```
 
 `start_task` moves Ready → In Progress (and refuses if any blocker is
-unfinished). `complete_task` moves In Progress → Done and announces
-which Ready tasks were waiting on the one that just closed.
+unfinished). `complete_task` moves In Progress → Done, announces which
+Ready tasks were waiting on the one that just closed, and
+auto-promotes Backlog dependents to Ready when their last blocker
+clears (the dashed Backlog → Ready transition above). Every
+transition is also written to the audit log — see
+[`task-format.md`](./task-format.md#status-history).
 
 ## Dependency resolution
 
@@ -118,6 +122,10 @@ skip T-042 and return T-040 first.
 - `task_manager_mcp/comments.py` — dated comment thread under a
   `## Comments` section in the task body. Same body-is-truth pattern
   as the checklist.
+- `task_manager_mcp/audit.py` — append-only status-change log at
+  `<vault>/.task-manager/audit.jsonl`, plus `last_status_change`
+  frontmatter mirroring. Powers `list_audit` and the Explorer's
+  `/api/audit` endpoint.
 - `task_manager_mcp/explorer/` — FastAPI sidecar serving a
   drag-and-drop Kanban UI over the same vault. See
   [`explorer.md`](./explorer.md).
