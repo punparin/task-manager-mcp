@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..audit import read_audit, record_transition
 from ..checklist import task_to_dict as _task_to_dict
 from ..checklist import tick as _tick
 from ..comments import append_comment, parse_comments
@@ -196,6 +197,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         out["tree"] = _task_tree(store, task_id)
         out["comments"] = [c.to_dict() for c in parse_comments(task.body)]
         out["completion_notes"] = _extract_section(task.body, COMPLETION_HEADING)
+        out["history"] = read_audit(store.vault, task_id=task_id)
         return out
 
     @app.get("/api/next")
@@ -236,6 +238,24 @@ def create_app(vault_path: str | Path) -> FastAPI:
         all_tasks = {t.id: t for t in store.all()}
         return {"tasks": [_task_payload(t, all_tasks) for t in _blocked_tasks(store)]}
 
+    @app.get("/api/audit")
+    def audit(
+        since: Optional[str] = None,
+        task_id: Optional[str] = None,
+        limit: int = 50,
+    ):
+        """Status-change audit log entries, newest first."""
+        try:
+            entries = read_audit(
+                store.vault,
+                since=since or None,
+                task_id=task_id or None,
+                limit=limit if limit > 0 else None,
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"entries": entries}
+
     # ── Tasks: mutations ──────────────────────────────────────────────
 
     @app.patch("/api/tasks/{task_id}/status")
@@ -262,9 +282,14 @@ def create_app(vault_path: str | Path) -> FastAPI:
             )
 
         old_status = task.status
-        task.status = payload.status
         unblocked_ids: list[str] = []
         promoted_ids: list[str] = []
+
+        if payload.status != old_status:
+            task.last_status_change = record_transition(
+                store.vault, task_id, old_status, payload.status, "me",
+            )
+        task.status = payload.status
 
         if payload.status == "Done":
             if not task.completed:
@@ -273,16 +298,20 @@ def create_app(vault_path: str | Path) -> FastAPI:
                 task.body = (task.body or "").rstrip() + (
                     f"\n\n## Completion Notes\n{payload.completion_notes}\n"
                 )
-            store.save(task)
+
+        store.save(task)
+
+        if payload.status == "Done":
             for dep in dependents_now_workable(store, task_id):
                 if dep.status == "Backlog":
+                    dep.last_status_change = record_transition(
+                        store.vault, dep.id, dep.status, "Ready", "agent",
+                    )
                     dep.status = "Ready"
                     store.save(dep)
                     promoted_ids.append(dep.id)
                 elif dep.status == "Ready":
                     unblocked_ids.append(dep.id)
-        else:
-            store.save(task)
 
         all_tasks = {t.id: t for t in store.all()}
         return {

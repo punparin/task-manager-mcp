@@ -92,6 +92,7 @@ class Task:
     due: Optional[str] = None
     created: str = ""
     completed: Optional[str] = None
+    last_status_change: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     blocked_by: list[str] = field(default_factory=list)
     body: str = ""
@@ -130,6 +131,8 @@ class Task:
             post.metadata["due"] = self.due
         if self.completed:
             post.metadata["completed"] = self.completed
+        if self.last_status_change:
+            post.metadata["last_status_change"] = self.last_status_change
         if self.tags:
             post.metadata["tags"] = self.tags
         if self.blocked_by:
@@ -151,6 +154,9 @@ class Task:
             due=str(m["due"]) if m.get("due") else None,
             created=str(m.get("created", "")),
             completed=str(m["completed"]) if m.get("completed") else None,
+            last_status_change=(
+                str(m["last_status_change"]) if m.get("last_status_change") else None
+            ),
             tags=list(m.get("tags") or []),
             blocked_by=list(m.get("blocked_by") or []),
             body=post.content,

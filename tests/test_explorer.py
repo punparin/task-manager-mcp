@@ -129,6 +129,32 @@ def test_status_patch_to_done_promotes_backlog_dependent(client, vault):
     assert promoted.status == "Ready"
 
 
+def test_status_patch_appends_audit_entry(client, vault):
+    res = client.patch("/api/tasks/T-005/status", json={"status": "Ready"})
+    assert res.status_code == 200
+    audit = client.get("/api/audit?task_id=T-005").json()["entries"]
+    assert len(audit) == 1
+    assert audit[0]["old_status"] == "Backlog"
+    assert audit[0]["new_status"] == "Ready"
+    assert audit[0]["actor"] == "me"
+
+    detail = client.get("/api/tasks/T-005").json()
+    assert detail["last_status_change"]
+    assert detail["history"][0]["new_status"] == "Ready"
+
+
+def test_audit_endpoint_filters_by_since(client):
+    client.patch("/api/tasks/T-005/status", json={"status": "Ready"})
+    res = client.get("/api/audit?since=2020-01-01")
+    assert res.status_code == 200
+    assert any(e["task_id"] == "T-005" for e in res.json()["entries"])
+
+
+def test_audit_endpoint_rejects_bad_since(client):
+    res = client.get("/api/audit?since=yesterday")
+    assert res.status_code == 422
+
+
 def test_status_patch_invalid_status_rejected(client):
     res = client.patch("/api/tasks/T-001/status", json={"status": "Bogus"})
     assert res.status_code == 422

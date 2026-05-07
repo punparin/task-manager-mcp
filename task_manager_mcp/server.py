@@ -9,6 +9,7 @@ from datetime import date
 from fastmcp import FastMCP
 
 from .agent_instructions import INSTRUCTIONS as _AGENT_INSTRUCTIONS
+from .audit import read_audit, record_transition
 from .checklist import task_to_dict
 from .checklist import tick as _tick_item
 from .comments import append_comment, parse_comments
@@ -207,6 +208,10 @@ async def update_task(
     transitioned_to_done = (
         updates.get("status") == "Done" and prior.status != "Done"
     )
+    if "status" in updates and updates["status"] != prior.status:
+        updates["last_status_change"] = record_transition(
+            store.vault, task_id, prior.status, updates["status"], "agent",
+        )
 
     task = store.update(task_id, **updates)
     msg = f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
@@ -316,6 +321,9 @@ async def start_task(task_id: str) -> str:
         ]
         return f"ERROR: Cannot start {task_id} — blocked by: {', '.join(unfinished)}"
 
+    task.last_status_change = record_transition(
+        store.vault, task_id, task.status, "In Progress", "agent",
+    )
     task.status = "In Progress"
     store.save(task)
     return f"Started {task_id}: {task.title}"
@@ -325,6 +333,9 @@ async def start_task(task_id: str) -> str:
 async def complete_task(task_id: str, completion_notes: str = "") -> str:
     """Mark task as 'Done'. Optionally append completion notes to body."""
     task = store.get(task_id)
+    task.last_status_change = record_transition(
+        store.vault, task_id, task.status, "Done", "agent",
+    )
     task.status = "Done"
     task.completed = date.today().isoformat()
     if completion_notes:
@@ -352,6 +363,9 @@ def _resolve_dependents_after_terminal(task_id: str):
     already_ready = []
     for dep in dependents_now_workable(store, task_id):
         if dep.status == "Backlog":
+            dep.last_status_change = record_transition(
+                store.vault, dep.id, dep.status, "Ready", "agent",
+            )
             dep.status = "Ready"
             store.save(dep)
             promoted.append(dep)
@@ -364,6 +378,9 @@ def _resolve_dependents_after_terminal(task_id: str):
 async def block_task(task_id: str, reason: str) -> str:
     """Mark task as 'Blocked' with a reason (for external blockers, not task dependencies)."""
     task = store.get(task_id)
+    task.last_status_change = record_transition(
+        store.vault, task_id, task.status, "Blocked", "agent",
+    )
     task.status = "Blocked"
     task.body = (task.body or "").rstrip() + f"\n\n## Blocked\n{reason}\n"
     store.save(task)
@@ -429,6 +446,32 @@ async def blocked_tasks() -> str:
         d["waiting_on"] = t.blocked_by
         out.append(d)
     return json.dumps(out, indent=2, default=str)
+
+
+@mcp.tool()
+async def list_audit(since: str = "", task_id: str = "", limit: int = 50) -> str:
+    """Read the status-change audit log, newest first.
+
+    since: ISO date YYYY-MM-DD; entries strictly older are dropped.
+    task_id: filter to a single task.
+    limit: cap the result count (default 50, 0 = unlimited).
+
+    Use this to answer "what shifted today?" without scanning every
+    markdown file. The log lives in <vault>/.task-manager/audit.jsonl
+    and is appended on every status transition the server triggers.
+    """
+    try:
+        entries = read_audit(
+            store.vault,
+            since=since or None,
+            task_id=task_id or None,
+            limit=limit if limit > 0 else None,
+        )
+    except ValueError as e:
+        return f"ERROR: {e}"
+    if not entries:
+        return "No audit entries match those filters."
+    return json.dumps(entries, indent=2, default=str)
 
 
 @mcp.tool()
