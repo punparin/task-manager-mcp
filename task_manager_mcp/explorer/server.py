@@ -284,6 +284,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         old_status = task.status
         unblocked_ids: list[str] = []
         promoted_ids: list[str] = []
+        cleared_ids: list[str] = []
 
         if payload.status != old_status:
             task.last_status_change = record_transition(
@@ -312,6 +313,26 @@ def create_app(vault_path: str | Path) -> FastAPI:
                     promoted_ids.append(dep.id)
                 elif dep.status == "Ready":
                     unblocked_ids.append(dep.id)
+        elif payload.status == "Cancelled" and old_status != "Cancelled":
+            # Mirror MCP's `update_task` Cancel path: clear dead blocked_by
+            # refs to this task, then promote any Backlog dependents that
+            # end up fully unblocked.
+            cancel_all = {t.id: t for t in store.all()}
+            for t in list(cancel_all.values()):
+                if task_id not in t.blocked_by:
+                    continue
+                cleared_ids.append(t.id)
+                t.blocked_by = [b for b in t.blocked_by if b != task_id]
+                if is_unblocked(t, cancel_all):
+                    if t.status == "Backlog":
+                        t.last_status_change = record_transition(
+                            store.vault, t.id, t.status, "Ready", "agent",
+                        )
+                        t.status = "Ready"
+                        promoted_ids.append(t.id)
+                    elif t.status == "Ready":
+                        unblocked_ids.append(t.id)
+                store.save(t)
 
         all_tasks = {t.id: t for t in store.all()}
         return {
@@ -319,6 +340,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
             "old_status": old_status,
             "unblocked": unblocked_ids,
             "promoted": promoted_ids,
+            "cleared": cleared_ids,
         }
 
     @app.post("/api/tasks/{task_id}/comments")

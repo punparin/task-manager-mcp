@@ -116,6 +116,66 @@ class TestUpdateTaskAutoPromote:
         assert read_audit(tmp_path, task_id="T-001") == []
 
 
+class TestUpdateTaskCancelResolvesDependents:
+    """Cancelling a blocker via update_task should clear dead blocked_by
+    refs from its dependents and promote any that end up unblocked.
+    Mirrors complete_task's promotion side effect on the blocker side."""
+
+    def test_cancel_promotes_backlog_dependents_and_strips_link(self, srv, tmp_path):
+        srv.store.create(title="Blocker", status="Ready")
+        srv.store.create(title="Dep", status="Backlog", blocked_by=["T-001"])
+        result = _run(srv.update_task(task_id="T-001", status="Cancelled"))
+
+        dep = srv.store.get("T-002")
+        assert dep.status == "Ready"
+        assert dep.blocked_by == []
+        assert "Cleared dead blocked_by → T-001: T-002" in result
+        assert "Promoted to Ready: T-002" in result
+        # Audit log captures both transitions.
+        entries = read_audit(tmp_path, task_id="T-002")
+        assert any(e["old_status"] == "Backlog" and e["new_status"] == "Ready" for e in entries)
+
+    def test_cancel_preserves_remaining_blockers(self, srv):
+        srv.store.create(title="Other live blocker", status="In Progress")
+        srv.store.create(title="Cancelled blocker", status="Ready")
+        srv.store.create(title="Dep", status="Backlog", blocked_by=["T-001", "T-002"])
+        _run(srv.update_task(task_id="T-002", status="Cancelled"))
+
+        dep = srv.store.get("T-003")
+        # T-002 stripped, T-001 still blocking → stays Backlog.
+        assert dep.blocked_by == ["T-001"]
+        assert dep.status == "Backlog"
+
+    def test_cancel_unblocks_already_ready_dependent(self, srv):
+        # Ready dependents shouldn't be re-promoted, but their dead link
+        # should still be cleaned up and they should appear in `Unblocked:`.
+        srv.store.create(title="Blocker", status="Ready")
+        srv.store.create(title="Dep already ready", status="Ready", blocked_by=["T-001"])
+        result = _run(srv.update_task(task_id="T-001", status="Cancelled"))
+
+        dep = srv.store.get("T-002")
+        assert dep.blocked_by == []
+        assert dep.status == "Ready"
+        assert "Cleared dead blocked_by → T-001: T-002" in result
+        assert "Unblocked: T-002" in result
+
+    def test_cancel_with_no_dependents_is_a_noop(self, srv):
+        srv.store.create(title="A", status="Ready")
+        result = _run(srv.update_task(task_id="T-001", status="Cancelled"))
+        assert "Updated T-001" in result
+        assert "Cleared dead blocked_by" not in result
+        assert "Promoted to Ready" not in result
+
+    def test_already_cancelled_does_not_re_resolve(self, srv):
+        srv.store.create(title="Blocker", status="Cancelled")
+        srv.store.create(title="Dep", status="Backlog", blocked_by=["T-001"])
+        # No transition → no resolution. (Cleanup should happen at the
+        # original Cancel transition, not on every subsequent update.)
+        result = _run(srv.update_task(task_id="T-001", status="Cancelled"))
+        assert "Cleared dead blocked_by" not in result
+        assert srv.store.get("T-002").blocked_by == ["T-001"]
+
+
 class TestUpdateTaskCompleted:
     def test_set_completed(self, srv):
         srv.store.create(title="A")

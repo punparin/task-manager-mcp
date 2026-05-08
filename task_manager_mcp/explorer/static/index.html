@@ -1367,6 +1367,12 @@
       if (data.unblocked && data.unblocked.length) {
         msg += ` · unblocked: ${data.unblocked.join(", ")}`;
       }
+      if (data.promoted && data.promoted.length) {
+        msg += ` · promoted: ${data.promoted.join(", ")}`;
+      }
+      if (data.cleared && data.cleared.length) {
+        msg += ` · cleared dead deps from: ${data.cleared.join(", ")}`;
+      }
       toast(msg, "success");
       await loadTasks();
     }

@@ -129,6 +129,31 @@ def test_status_patch_to_done_promotes_backlog_dependent(client, vault):
     assert promoted.status == "Ready"
 
 
+def test_status_patch_to_cancelled_clears_dead_links_and_promotes(client, vault):
+    """Cancelling a blocker via the explorer should strip the dead
+    blocked_by reference from each dependent and promote any that end
+    up fully unblocked, mirroring the MCP `update_task` behavior."""
+    store = TaskStore(vault)
+    store.create(
+        title="Pure dependent",
+        status="Backlog",
+        priority="P2",
+        assignee="claude",
+        blocked_by=["T-002"],
+    )
+
+    res = client.patch("/api/tasks/T-002/status", json={"status": "Cancelled"})
+    assert res.status_code == 200
+    body = res.json()
+    assert "T-006" in body["cleared"]
+    assert "T-006" in body["promoted"]
+
+    # Re-read from disk to be sure the save stuck.
+    fresh = TaskStore(vault).get("T-006")
+    assert fresh.status == "Ready"
+    assert fresh.blocked_by == []
+
+
 def test_status_patch_appends_audit_entry(client, vault):
     res = client.patch("/api/tasks/T-005/status", json={"status": "Ready"})
     assert res.status_code == 200
