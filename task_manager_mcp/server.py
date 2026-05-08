@@ -208,6 +208,9 @@ async def update_task(
     transitioned_to_done = (
         updates.get("status") == "Done" and prior.status != "Done"
     )
+    transitioned_to_cancelled = (
+        updates.get("status") == "Cancelled" and prior.status != "Cancelled"
+    )
     if "status" in updates and updates["status"] != prior.status:
         updates["last_status_change"] = record_transition(
             store.vault, task_id, prior.status, updates["status"], "agent",
@@ -237,6 +240,15 @@ async def update_task(
 
     if transitioned_to_done:
         promoted, unblocked = _resolve_dependents_after_terminal(task_id)
+        if unblocked:
+            msg += f"\n\nUnblocked: {', '.join(t.id + ' (' + t.title + ')' for t in unblocked)}"
+        if promoted:
+            msg += f"\n\nPromoted to Ready: {', '.join(t.id + ' (' + t.title + ')' for t in promoted)}"
+
+    if transitioned_to_cancelled:
+        cleared, promoted, unblocked = _resolve_dependents_after_cancel(task_id)
+        if cleared:
+            msg += f"\n\nCleared dead blocked_by → {task_id}: {', '.join(cleared)}"
         if unblocked:
             msg += f"\n\nUnblocked: {', '.join(t.id + ' (' + t.title + ')' for t in unblocked)}"
         if promoted:
@@ -428,10 +440,10 @@ async def complete_task(task_id: str, completion_notes: str = "") -> str:
 def _resolve_dependents_after_terminal(task_id: str):
     """Promote Backlog dependents to Ready and return (promoted, already_ready).
 
-    Run after saving `task_id` with a terminal status (Done/Cancelled).
-    Backlog dependents whose remaining blockers are all terminal are
-    promoted in place; Ready dependents are returned untouched so the
-    caller can announce them as "now workable".
+    Run after saving `task_id` with status Done. The link from the
+    dependent's `blocked_by` to `task_id` is preserved as historical
+    context — Done means "dep was satisfied", not "dep is dead". For
+    Cancelled, see `_resolve_dependents_after_cancel`.
     """
     promoted = []
     already_ready = []
@@ -446,6 +458,39 @@ def _resolve_dependents_after_terminal(task_id: str):
         elif dep.status == "Ready":
             already_ready.append(dep)
     return promoted, already_ready
+
+
+def _resolve_dependents_after_cancel(task_id: str):
+    """Clear dead `blocked_by` refs to the cancelled task and promote any
+    Backlog dependents that end up fully unblocked.
+
+    Returns (cleared_ids, promoted, already_ready).
+
+    Diverges from `_resolve_dependents_after_terminal` because Cancelled
+    blockers are dead links — `validate_dependencies` flags them as
+    "dep satisfied but link is dead" — so we strip them on transition
+    rather than leaving the rot for a later cleanup pass.
+    """
+    cleared: list[str] = []
+    promoted: list = []
+    already_ready: list = []
+    all_tasks = {t.id: t for t in store.all()}
+    for t in list(all_tasks.values()):
+        if task_id not in t.blocked_by:
+            continue
+        cleared.append(t.id)
+        t.blocked_by = [b for b in t.blocked_by if b != task_id]
+        if is_unblocked(t, all_tasks):
+            if t.status == "Backlog":
+                t.last_status_change = record_transition(
+                    store.vault, t.id, t.status, "Ready", "agent",
+                )
+                t.status = "Ready"
+                promoted.append(t)
+            elif t.status == "Ready":
+                already_ready.append(t)
+        store.save(t)
+    return cleared, promoted, already_ready
 
 
 @mcp.tool()
