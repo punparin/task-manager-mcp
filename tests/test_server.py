@@ -60,6 +60,62 @@ class TestUpdateTaskBlockedBy:
         assert "cycle" in result.lower()
 
 
+class TestUpdateTaskAutoPromote:
+    """Mirror complete_task's side effect for the self case:
+    if blocked_by is modified (no explicit status) and the task ends up
+    a Backlog task with zero unresolved blockers, promote to Ready."""
+
+    def test_clearing_blockers_promotes_backlog_to_ready(self, srv, tmp_path):
+        srv.store.create(title="A", status="Ready")
+        srv.store.create(title="B", status="Backlog", blocked_by=["T-001"])
+        result = _run(srv.update_task(task_id="T-002", blocked_by="-"))
+        assert srv.store.get("T-002").status == "Ready"
+        assert "Promoted to Ready: T-002" in result
+        # Audit log records the transition.
+        entries = read_audit(tmp_path, task_id="T-002")
+        assert any(e["new_status"] == "Ready" and e["old_status"] == "Backlog" for e in entries)
+
+    def test_replacing_with_terminal_blockers_promotes(self, srv):
+        srv.store.create(title="Done blocker", status="Done")
+        srv.store.create(title="Live blocker", status="In Progress")
+        srv.store.create(title="Dependent", status="Backlog", blocked_by=["T-002"])
+        # Swap the live blocker for the already-done one — task is now unblocked.
+        result = _run(srv.update_task(task_id="T-003", blocked_by="T-001"))
+        assert srv.store.get("T-003").status == "Ready"
+        assert "Promoted to Ready: T-003" in result
+
+    def test_replacing_with_unfinished_blocker_does_not_promote(self, srv):
+        srv.store.create(title="Live blocker A", status="In Progress")
+        srv.store.create(title="Live blocker B", status="Ready")
+        srv.store.create(title="Dependent", status="Backlog", blocked_by=["T-001"])
+        result = _run(srv.update_task(task_id="T-003", blocked_by="T-002"))
+        assert srv.store.get("T-003").status == "Backlog"
+        assert "Promoted to Ready" not in result
+
+    def test_explicit_status_in_same_call_wins(self, srv):
+        # Caller deliberately set status=Backlog while clearing blockers —
+        # don't second-guess them.
+        srv.store.create(title="A", status="Ready")
+        srv.store.create(title="B", status="Backlog", blocked_by=["T-001"])
+        _run(srv.update_task(task_id="T-002", blocked_by="-", status="Backlog"))
+        assert srv.store.get("T-002").status == "Backlog"
+
+    def test_non_backlog_task_is_left_alone(self, srv):
+        # Already Ready / In Progress / Blocked / etc. shouldn't be touched.
+        srv.store.create(title="A", status="Ready")
+        srv.store.create(title="B", status="Blocked", blocked_by=["T-001"])
+        _run(srv.update_task(task_id="T-002", blocked_by="-"))
+        assert srv.store.get("T-002").status == "Blocked"
+
+    def test_no_promotion_when_blocked_by_unchanged(self, srv, tmp_path):
+        # Updating an unrelated field on a Backlog task must NOT
+        # speculatively promote it.
+        srv.store.create(title="A", status="Backlog")
+        _run(srv.update_task(task_id="T-001", priority="P1"))
+        assert srv.store.get("T-001").status == "Backlog"
+        assert read_audit(tmp_path, task_id="T-001") == []
+
+
 class TestUpdateTaskCompleted:
     def test_set_completed(self, srv):
         srv.store.create(title="A")
