@@ -445,6 +445,146 @@
     /* Graph */
     #graph { width: 100%; height: 100%; background: var(--bg); }
 
+    /* Activity timeline */
+    .activity {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 16px 20px 32px;
+      flex: 1;
+      overflow-y: auto;
+      width: 100%;
+    }
+    .activity-empty {
+      color: var(--muted);
+      font-style: italic;
+      padding: 24px 0;
+      text-align: center;
+    }
+    .day-group { margin-bottom: 18px; }
+    .day-header {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .day-header-count { font-weight: 400; opacity: 0.8; }
+    .day-entries { display: flex; flex-direction: column; gap: 4px; }
+    .activity-row {
+      display: grid;
+      grid-template-columns: 56px 84px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .activity-row:hover { background: var(--panel-2); }
+    .activity-time {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .activity-id {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .activity-title {
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .activity-title.missing { color: var(--muted); font-style: italic; }
+    .activity-transition {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .activity-actor {
+      color: var(--muted);
+      font-size: 11px;
+      margin-left: 4px;
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .status-pill[data-status="Done"] { background: rgba(45,212,191,0.18); color: var(--done); border-color: rgba(45,212,191,0.4); }
+    .status-pill[data-status="In Progress"] { background: rgba(74,158,255,0.18); color: var(--accent); border-color: rgba(74,158,255,0.4); }
+    .status-pill[data-status="Ready"] { background: rgba(74,158,255,0.10); color: var(--accent); border-color: rgba(74,158,255,0.3); }
+    .status-pill[data-status="Blocked"] { background: rgba(255,84,112,0.18); color: var(--warn); border-color: rgba(255,84,112,0.4); }
+    .status-pill[data-status="Cancelled"] { background: rgba(139,146,168,0.18); color: var(--muted); border-color: var(--border); }
+    .status-pill[data-status="Backlog"] { background: var(--panel-2); color: var(--muted); border-color: var(--border); }
+    .activity-arrow { color: var(--muted); font-size: 11px; }
+
+    .activity-toolbar {
+      padding: 10px 20px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .activity-toolbar select, .activity-toolbar input {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 12px;
+    }
+
+    /* Per-task history section */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .history-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 4px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .history-row:last-child { border-bottom: 0; }
+    .history-time {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+    .history-actor {
+      margin-left: auto;
+      color: var(--accent);
+      font-size: 11px;
+    }
+
     /* Toast */
     .toast {
       position: fixed;
@@ -476,6 +616,7 @@
     <div class="tabs">
       <div class="tab active" data-view="board">Board</div>
       <div class="tab" data-view="graph">Graph</div>
+      <div class="tab" data-view="activity">Activity</div>
     </div>
   </header>
 
@@ -517,6 +658,37 @@
   <div class="view" id="view-graph" style="display:none">
     <div id="graph"></div>
   </div>
+  <div class="view" id="view-activity" style="display:none; flex-direction: column;">
+    <div class="activity-toolbar">
+      <label>since
+        <select id="activity-since">
+          <option value="1">last 24h</option>
+          <option value="7" selected>last 7 days</option>
+          <option value="30">last 30 days</option>
+          <option value="90">last 90 days</option>
+          <option value="">all time</option>
+        </select>
+      </label>
+      <label>actor
+        <select id="activity-actor">
+          <option value="">all</option>
+        </select>
+      </label>
+      <label>task
+        <input id="activity-task" type="text" placeholder="T-042" style="width: 80px" />
+      </label>
+      <label>limit
+        <select id="activity-limit">
+          <option value="50">50</option>
+          <option value="200" selected>200</option>
+          <option value="500">500</option>
+          <option value="2000">2000</option>
+        </select>
+      </label>
+      <span id="activity-count" class="search-count"></span>
+    </div>
+    <div class="activity" id="activity"></div>
+  </div>
 
   <div class="panel" id="panel">
     <div class="panel-header">
@@ -555,6 +727,12 @@
         hideDone: false,
         hideCancelled: false,
         doneDays: 7,
+      },
+      activityFilters: {
+        sinceDays: "7",
+        actor: "",
+        taskId: "",
+        limit: 200,
       },
     };
 
@@ -858,6 +1036,7 @@
         ${bodyForRender ? `<div class="panel-section"><h3>Body</h3>${renderBody(bodyForRender)}</div>` : ""}
         ${completionPanel}
         ${renderCommentsSection(t)}
+        ${renderHistorySection(t)}
         ${t.blocked_by && t.blocked_by.length ? `<div class="panel-section"><h3>Dep tree</h3><pre>${escapeHtml(tree)}</pre></div>` : ""}
         <div class="panel-section">
           <h3>Actions</h3>
@@ -973,6 +1152,34 @@
           </form>
         </div>
       `;
+    }
+
+    /**
+     * Render the per-task History section using the `history` field
+     * fetched in /api/tasks/{id}. Server returns newest-first.
+     */
+    function renderHistorySection(t) {
+      const history = t.history || [];
+      if (!history.length) return "";
+      const rows = history
+        .map((e) => {
+          const date = (e.ts || "").slice(0, 10);
+          const time = (e.ts || "").slice(11, 16);
+          return `
+            <div class="history-row">
+              <span class="history-time">${date} ${time}</span>
+              <span class="status-pill" data-status="${escapeHtml(e.old_status || "")}">${escapeHtml(e.old_status || "—")}</span>
+              <span class="activity-arrow">→</span>
+              <span class="status-pill" data-status="${escapeHtml(e.new_status || "")}">${escapeHtml(e.new_status || "—")}</span>
+              <span class="history-actor">@${escapeHtml(e.actor || "")}</span>
+            </div>`;
+        })
+        .join("");
+      return `
+        <div class="panel-section">
+          <h3>History (${history.length})</h3>
+          <div class="history-list">${rows}</div>
+        </div>`;
     }
 
     /**
@@ -1260,12 +1467,108 @@
       }
     }
 
+    async function loadActivity() {
+      const f = state.activityFilters;
+      const params = new URLSearchParams();
+      if (f.sinceDays) {
+        const cutoff = new Date(Date.now() - parseInt(f.sinceDays, 10) * 86400000)
+          .toISOString().slice(0, 10);
+        params.set("since", cutoff);
+      }
+      if (f.taskId.trim()) params.set("task_id", f.taskId.trim());
+      params.set("limit", String(f.limit || 200));
+      const res = await fetch("/api/audit?" + params.toString());
+      if (!res.ok) {
+        toast("failed to load activity", "error");
+        return;
+      }
+      const data = await res.json();
+      let entries = data.entries || [];
+      if (f.actor) entries = entries.filter((e) => e.actor === f.actor);
+      renderActivity(entries);
+    }
+
+    function renderActivity(entries) {
+      const host = $("#activity");
+      const count = $("#activity-count");
+      count.textContent = `${entries.length} entr${entries.length === 1 ? "y" : "ies"}`;
+      count.style.display = "";
+      if (!entries.length) {
+        host.innerHTML = `<div class="activity-empty">No status changes match these filters yet.</div>`;
+        return;
+      }
+      const titleById = Object.fromEntries(state.tasks.map((t) => [t.id, t.title]));
+      const groups = new Map();
+      for (const e of entries) {
+        const day = (e.ts || "").slice(0, 10);
+        if (!groups.has(day)) groups.set(day, []);
+        groups.get(day).push(e);
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const blocks = [];
+      for (const [day, dayEntries] of groups) {
+        const label =
+          day === today ? `${day} · Today`
+          : day === yesterday ? `${day} · Yesterday`
+          : day;
+        const rows = dayEntries
+          .map((e) => {
+            const time = (e.ts || "").slice(11, 16);
+            const title = titleById[e.task_id];
+            const titleHtml = title
+              ? `<span class="activity-title">${escapeHtml(title)}</span>`
+              : `<span class="activity-title missing">(deleted or not loaded)</span>`;
+            return `
+              <div class="activity-row" data-task-id="${e.task_id}">
+                <span class="activity-time">${time}</span>
+                <span class="activity-id">${e.task_id}</span>
+                ${titleHtml}
+                <span class="activity-transition">
+                  <span class="status-pill" data-status="${escapeHtml(e.old_status || "")}">${escapeHtml(e.old_status || "—")}</span>
+                  <span class="activity-arrow">→</span>
+                  <span class="status-pill" data-status="${escapeHtml(e.new_status || "")}">${escapeHtml(e.new_status || "—")}</span>
+                  <span class="activity-actor">@${escapeHtml(e.actor || "")}</span>
+                </span>
+              </div>`;
+          })
+          .join("");
+        blocks.push(`
+          <div class="day-group">
+            <div class="day-header">
+              <span>${label}</span>
+              <span class="day-header-count">${dayEntries.length} change${dayEntries.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="day-entries">${rows}</div>
+          </div>`);
+      }
+      host.innerHTML = blocks.join("");
+      for (const row of $$("#activity .activity-row")) {
+        row.addEventListener("click", () => openPanel(row.getAttribute("data-task-id")));
+      }
+    }
+
+    function refreshActivityActorOptions() {
+      const select = $("#activity-actor");
+      if (!select || !state.actors) return;
+      const current = select.value;
+      select.innerHTML =
+        `<option value="">all</option>` +
+        state.actors.map((a) => `<option value="${a}">${a}</option>`).join("");
+      if (current && state.actors.includes(current)) select.value = current;
+    }
+
     function setView(view) {
       state.view = view;
       for (const t of $$(".tab")) t.classList.toggle("active", t.dataset.view === view);
       $("#view-board").style.display = view === "board" ? "" : "none";
       $("#view-graph").style.display = view === "graph" ? "" : "none";
+      $("#view-activity").style.display = view === "activity" ? "flex" : "none";
       if (view === "graph") loadGraph();
+      if (view === "activity") {
+        refreshActivityActorOptions();
+        loadActivity();
+      }
     }
 
     // ── Wire up ──
@@ -1345,6 +1648,28 @@
         state.autoRefresh = e.target.checked;
       });
       $("#panel-close").addEventListener("click", () => $("#panel").classList.remove("open"));
+
+      // Activity tab filters
+      $("#activity-since").addEventListener("change", (e) => {
+        state.activityFilters.sinceDays = e.target.value;
+        if (state.view === "activity") loadActivity();
+      });
+      $("#activity-actor").addEventListener("change", (e) => {
+        state.activityFilters.actor = e.target.value;
+        if (state.view === "activity") loadActivity();
+      });
+      let activityTaskDebounce;
+      $("#activity-task").addEventListener("input", (e) => {
+        state.activityFilters.taskId = e.target.value;
+        clearTimeout(activityTaskDebounce);
+        activityTaskDebounce = setTimeout(() => {
+          if (state.view === "activity") loadActivity();
+        }, 200);
+      });
+      $("#activity-limit").addEventListener("change", (e) => {
+        state.activityFilters.limit = parseInt(e.target.value, 10) || 200;
+        if (state.view === "activity") loadActivity();
+      });
     });
   </script>
 </body>
