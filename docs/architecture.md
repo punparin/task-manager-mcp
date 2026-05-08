@@ -56,7 +56,8 @@ stateDiagram-v2
 unfinished). `complete_task` moves In Progress → Done, announces which
 Ready tasks were waiting on the one that just closed, and
 auto-promotes Backlog dependents to Ready when their last blocker
-clears (the dashed Backlog → Ready transition above). Every
+clears (the Backlog → Ready transition above runs both manually via
+`update_task` and automatically here). Every
 transition is also written to the audit log — see
 [`task-format.md`](./task-format.md#status-history).
 

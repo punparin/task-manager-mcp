@@ -104,8 +104,9 @@ complete_task(T-042)          ← announces unblocked downstream tasks
 
 ## Task format (for reading raw markdown)
 
-Tasks live in `<vault>/tasks/`. Frontmatter: `type, id, title, status,
-priority, assignee, project, area, created, due, blocked_by, tags`.
+Tasks live in `<vault>/tasks/` (override with `TASK_MANAGER_TASKS_FOLDER`).
+Frontmatter: `type, id, title, status, priority, assignee, project, area,
+created, due, completed, last_status_change, blocked_by, tags`.
 Body has `## What to do`, `## Acceptance criteria` (checklist), and
 `## Comments`. Body is the source of truth for checklists and
 comments — they are never mirrored to frontmatter; progress
