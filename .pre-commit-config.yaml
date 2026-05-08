@@ -4,3 +4,11 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+  - repo: local
+    hooks:
+      - id: docs-with-feature
+        name: tool/route surface changes must update docs
+        entry: scripts/check_docs_with_features.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
