@@ -29,11 +29,17 @@ Explorer just renders it.
   actor list), and a `💬 N` chip on cards. Mirrors the MCP
   `add_comment` tool, so notes added in the UI are visible to the
   agent and vice versa
-- Completion notes render as a dedicated callout above the body when
+- Completion notes render as a dedicated callout below the body when
   the task is Done
-- Dep graph view (Cytoscape.js) — click a node to open the side
-  panel
-- Filters: assignee, priority, project, area, hide done/cancelled
+- Three top-level views toggleable from the header:
+  - **Board** — the kanban described above
+  - **Graph** — dep graph (Cytoscape.js); click a node to open the
+    side panel
+  - **Activity** — chronological feed of every status transition
+    pulled from the audit log, with its own filter row (since,
+    actor, task id, limit) on top of the universal filters
+- Filters: assignee, priority, project, area, hide done/cancelled,
+  and a "done last N days" recency cap (`0` = show all)
 - Universal search (id / title / project / area / tag) with a live
   result count
 - Auto-refresh that preserves scroll position and selection so
@@ -66,13 +72,13 @@ docker run -p 8765:8765 -v /path/to/vault:/vault \
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Vault path, task count, valid enums |
+| `GET` | `/api/health` | Returns `{ok, vault, tasks_dir, task_count, valid_status, valid_priority, valid_assignee, version}`. `tasks_dir` is the resolved tasks folder (after `TASK_MANAGER_TASKS_FOLDER`); `valid_assignee` is the configured actor list |
 | `GET` | `/api/tasks` | List with filters: `?status=&assignee=&priority=&project=&area=`. Returns `next_task_id` |
 | `GET` | `/api/tasks/{id}` | Full detail: body, dep tree, parsed `comments`, extracted `completion_notes`, status `history` (from audit log), computed `is_unblocked`, `unfinished_blockers`, `dep_count` |
 | `PATCH` | `/api/tasks/{id}/status` | Body `{status, completion_notes?}`. Validates deps when target is `In Progress`. Returns `{task, old_status, unblocked, promoted, cleared}` — `promoted` lists Backlog dependents auto-flipped to Ready when the change is to `Done` or `Cancelled`. On `Cancelled`, `cleared` lists dependents whose dead `blocked_by` reference to this task was stripped |
 | `PATCH` | `/api/tasks/{id}/checklist/{index}` | Body `{checked}`. Flips the n-th checkbox in the body (1-based). Mirrors MCP `tick_item` |
 | `POST` | `/api/tasks/{id}/comments` | Body `{text, author?}`. Appends a dated comment under `## Comments`. Mirrors MCP `add_comment` |
-| `PATCH` | `/api/tasks/{id}` | Update fields (title, priority, due, etc.) |
+| `PATCH` | `/api/tasks/{id}` | Update non-status fields: `title, priority, assignee, project, area, due, tags, body`. Status changes go through `/status` (above); `blocked_by` changes through MCP `update_task` |
 | `POST` | `/api/tasks` | Create task |
 | `GET` | `/api/next?assignee=` | Same logic as MCP `next_task` |
 | `GET` | `/api/blocked` | Ready tasks waiting on unfinished deps |

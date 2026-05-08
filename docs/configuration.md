@@ -44,9 +44,10 @@ resolved.
 
 ## Custom actors
 
-Out of the box, tasks can be assigned to `me` (the human) or `agent`
-(an MCP agent). To onboard a team — multiple humans, multiple AI
-agents, or both — drop a config file at
+Out of the box, tasks can be assigned to `me` (the human), `agent`
+(an MCP agent), or `claude` (a legacy alias for `agent`, kept so
+vaults written before the rename keep loading). To onboard a team —
+multiple humans, multiple AI agents, or both — drop a config file at
 `<vault>/.task-manager/config.yml`:
 
 ```yaml
