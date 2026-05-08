@@ -216,6 +216,25 @@ async def update_task(
     task = store.update(task_id, **updates)
     msg = f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
 
+    # Mirror the complete_task side effect for the *self* case: if the
+    # caller modified blocked_by (without explicitly setting status) and
+    # that left a Backlog task with no remaining unresolved blockers,
+    # promote it to Ready. Same Backlog → Ready logic that
+    # _resolve_dependents_after_terminal applies to dependents.
+    if (
+        "blocked_by" in updates
+        and "status" not in updates
+        and task.status == "Backlog"
+    ):
+        all_tasks = {t.id: t for t in store.all()}
+        if is_unblocked(task, all_tasks):
+            task.last_status_change = record_transition(
+                store.vault, task_id, task.status, "Ready", "agent",
+            )
+            task.status = "Ready"
+            store.save(task)
+            msg += f"\n\nPromoted to Ready: {task.id} (no remaining blockers)"
+
     if transitioned_to_done:
         promoted, unblocked = _resolve_dependents_after_terminal(task_id)
         if unblocked:
