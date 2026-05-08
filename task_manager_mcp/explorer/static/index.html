@@ -308,6 +308,17 @@
       overflow-x: auto;
       white-space: pre-wrap;
     }
+    /* Plain prose inside the task body (paragraphs, non-checkbox bullets).
+       Same font as Tags / Project / etc. so a "## Acceptance criteria"
+       section written as `- foo` doesn't render in monospace. Code blocks
+       (fenced with ```) still go through .panel-body pre above. */
+    .body-prose {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
     /* Headings parsed out of the task body itself (## Acceptance criteria, etc).
        Distinct from the .panel-section h3 labels above each section. */
     .body-heading {
@@ -853,7 +864,7 @@
           <div class="actions">
             ${t.status !== "Ready" ? `<button data-action="status" data-status="Ready">Mark Ready</button>` : ""}
             ${t.status !== "In Progress" ? `<button data-action="status" data-status="In Progress">Start</button>` : ""}
-            ${t.status !== "Done" ? `<button data-action="complete-open">Complete…</button>` : ""}
+            ${t.status !== "Done" ? `<button data-action="complete-open">Complete</button>` : ""}
             ${t.status !== "Blocked" ? `<button class="ghost" data-action="status" data-status="Blocked">Block</button>` : ""}
             ${t.status !== "Cancelled" ? `<button class="ghost" data-action="status" data-status="Cancelled">Cancel</button>` : ""}
           </div>
@@ -865,7 +876,9 @@
 
       for (const btn of $$('[data-action="status"]')) {
         btn.addEventListener("click", async () => {
-          await updateStatus(taskId, btn.getAttribute("data-status"));
+          const targetStatus = btn.getAttribute("data-status");
+          if (!confirm(`Mark ${taskId} as ${targetStatus}?`)) return;
+          await updateStatus(taskId, targetStatus);
           $("#panel").classList.remove("open");
         });
       }
@@ -1013,28 +1026,35 @@
       const ITEM = /^(\s*)([-*])\s+\[([ xX])\]\s+(.+)$/;
       const HEADING = /^(#{1,6})\s+(.+?)\s*$/;
       const FENCE = /^\s*```/;
-      const segments = []; // [{type: 'pre'|'list'|'heading', ...}]
+      // Segments: 'code' (fenced ```), 'prose' (paragraphs, non-checkbox
+      // bullets), 'list' (interactive checklist), 'heading' (`## …`).
+      // Prose renders in the body font; only fenced code uses monospace.
+      const segments = [];
       let inFence = false;
       let curList = null;
-      let curPre = null;
+      let curCode = null;
+      let curProse = null;
       let itemIndex = 0;
-      const flushPre = () => { if (curPre) { segments.push(curPre); curPre = null; } };
+      const flushCode = () => { if (curCode) { segments.push(curCode); curCode = null; } };
+      const flushProse = () => { if (curProse) { segments.push(curProse); curProse = null; } };
       const flushList = () => { if (curList) { segments.push(curList); curList = null; } };
       for (const line of lines) {
         if (FENCE.test(line)) {
-          inFence = !inFence;
+          flushProse();
           flushList();
-          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+          (curCode ||= { type: "code", lines: [] }).lines.push(line);
+          if (inFence) { flushCode(); }
+          inFence = !inFence;
           continue;
         }
         if (inFence) {
-          flushList();
-          (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+          (curCode ||= { type: "code", lines: [] }).lines.push(line);
           continue;
         }
         const m = line.match(ITEM);
         if (m) {
-          flushPre();
+          flushProse();
+          flushCode();
           itemIndex += 1;
           (curList ||= { type: "list", items: [] }).items.push({
             index: itemIndex,
@@ -1045,25 +1065,32 @@
         }
         const h = line.match(HEADING);
         if (h) {
-          flushPre();
+          flushProse();
           flushList();
+          flushCode();
           segments.push({ type: "heading", level: h[1].length, text: h[2] });
           continue;
         }
         flushList();
-        (curPre ||= { type: "pre", lines: [] }).lines.push(line);
+        flushCode();
+        (curProse ||= { type: "prose", lines: [] }).lines.push(line);
       }
-      flushPre();
+      flushCode();
+      flushProse();
       flushList();
       return segments
         .map((seg) => {
           if (seg.type === "heading") {
             return `<div class="body-heading">${escapeHtml(seg.text)}</div>`;
           }
-          if (seg.type === "pre") {
-            // Trim leading/trailing blank lines so prose chunks don't add visual noise.
+          if (seg.type === "code") {
             const text = seg.lines.join("\n").replace(/^\n+|\n+$/g, "");
             return text ? `<pre>${escapeHtml(text)}</pre>` : "";
+          }
+          if (seg.type === "prose") {
+            // Trim leading/trailing blank lines so prose chunks don't add visual noise.
+            const text = seg.lines.join("\n").replace(/^\n+|\n+$/g, "");
+            return text ? `<div class="body-prose">${escapeHtml(text)}</div>` : "";
           }
           const items = seg.items
             .map(
