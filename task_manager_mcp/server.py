@@ -101,6 +101,7 @@ async def list_tasks(
     assignee: str = "",
     priority: str = "",
     project: str = "",
+    tags: str = "",
 ) -> str:
     """List tasks with optional filters.
 
@@ -108,6 +109,7 @@ async def list_tasks(
     assignee: filter by any actor configured in the vault (legacy 'claude' is treated as 'agent')
     priority: filter by P1/P2/P3/P4
     project: filter by project name (partial match)
+    tags: comma-separated; task must carry every listed tag (exact match, case-sensitive)
     """
     tasks = store.all()
     if status:
@@ -119,6 +121,10 @@ async def list_tasks(
         tasks = [t for t in tasks if t.priority == priority]
     if project:
         tasks = [t for t in tasks if t.project and project.lower() in t.project.lower()]
+    if tags:
+        wanted = {t.strip() for t in tags.split(",") if t.strip()}
+        if wanted:
+            tasks = [t for t in tasks if wanted.issubset(set(t.tags))]
 
     if not tasks:
         return "No tasks match those filters."

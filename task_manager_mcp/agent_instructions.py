@@ -27,6 +27,10 @@ Operating rules:
 - "What's in flight?" → `list_tasks(status="In Progress")`.
 - "Show me all P1s" → `list_tasks(priority="P1")` (cross-cuts
   statuses).
+- "Tasks tagged X" → `list_tasks(tags="X")`. Pass multiple tags
+  comma-separated for AND-match (`tags="backend,perf"` returns
+  tasks carrying both). Use this to narrow result size when a
+  bare `list_tasks` would return a wall of tasks.
 - "What's blocked?" → `blocked_tasks`. Ready tasks waiting on
   unfinished deps — the queue that would be workable once blockers
   land.
