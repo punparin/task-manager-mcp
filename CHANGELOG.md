@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.5] - 2026-05-12
+
 ### Added
-- `list_tasks` accepts a `tags` filter — comma-separated, AND-matched — so agents can narrow large vault queries instead of pulling every task and post-filtering.
+- `list_tasks` accepts a `tags` filter — comma-separated, AND-matched — so agents can narrow large vault queries instead of pulling every task and post-filtering (#68).
 
 ## [v0.5.4] - 2026-05-08
 
