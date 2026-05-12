@@ -31,6 +31,16 @@ Operating rules:
   comma-separated for AND-match (`tags="backend,perf"` returns
   tasks carrying both). Use this to narrow result size when a
   bare `list_tasks` would return a wall of tasks.
+- "Tasks related to X" / "similar to" / "what touches Y" (the
+  fuzzy, semantic version of the question) → this MCP has no
+  embedding index of its own; compose with an Obsidian semantic
+  search MCP if one is loaded. Pattern: call its
+  `semantic_search(query="...", path="tasks/")` first (scope to
+  the tasks folder so non-task notes are filtered out), then
+  enrich the returned task ids with `get_task` / `list_tasks` to
+  layer in status, blockers, and due dates. If no semantic MCP is
+  available, fall back to `list_tasks(tags=…)` or a `project`
+  partial match.
 - "What's blocked?" → `blocked_tasks`. Ready tasks waiting on
   unfinished deps — the queue that would be workable once blockers
   land.
