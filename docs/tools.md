@@ -6,7 +6,7 @@ dependency resolution.
 | Group | Tool | Description |
 |---|---|---|
 | Create / read | `create_task` | Create task with auto-incrementing ID |
-| | `list_tasks` | Filter by status, assignee, priority, project |
+| | `list_tasks` | Filter by status, assignee, priority, project, tags (comma-separated, AND-matched) |
 | | `get_task` | Read full task details + body |
 | | `update_task` | Change any task field — incl. `blocked_by` (cycle-checked) and `completed`. Pass `"-"` to clear `blocked_by` (to `[]`) or `completed` (to unset). Modifying `blocked_by` so a Backlog task ends up with no unresolved blockers auto-promotes it to Ready (skipped when status is set explicitly in the same call). Transitioning to `Cancelled` strips dead `blocked_by` references from every dependent and promotes any that end up fully unblocked |
 | | `bulk_update` | Apply many `update_task` calls in one round-trip; per-task pass/fail in the response. Accepts a subset of `update_task`'s fields: `title, status, priority, assignee, project, area, due, tags, body` — `blocked_by` and `completed` must go through `update_task` so cycle-checks and auto-promote run per task |

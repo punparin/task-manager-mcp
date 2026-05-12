@@ -397,3 +397,41 @@ class TestTaskTreeDirection:
         srv.store.create(title="A")
         result = _run(srv.task_tree(task_id="T-001", direction="sideways"))
         assert result.startswith("ERROR:")
+
+
+class TestListTasksTagFilter:
+    def _seed(self, srv):
+        srv.store.create(title="A", tags=["backend", "perf"])
+        srv.store.create(title="B", tags=["backend"])
+        srv.store.create(title="C", tags=["frontend"])
+        srv.store.create(title="D")  # no tags
+
+    def test_single_tag_matches_any_task_with_that_tag(self, srv):
+        self._seed(srv)
+        out = _run(srv.list_tasks(tags="backend"))
+        ids = {t["id"] for t in json.loads(out)}
+        assert ids == {"T-001", "T-002"}
+
+    def test_multiple_tags_are_and_matched(self, srv):
+        self._seed(srv)
+        out = _run(srv.list_tasks(tags="backend,perf"))
+        ids = {t["id"] for t in json.loads(out)}
+        assert ids == {"T-001"}
+
+    def test_unknown_tag_returns_no_match_message(self, srv):
+        self._seed(srv)
+        out = _run(srv.list_tasks(tags="nope"))
+        assert out == "No tasks match those filters."
+
+    def test_blank_and_whitespace_entries_are_ignored(self, srv):
+        self._seed(srv)
+        out = _run(srv.list_tasks(tags=" , backend ,"))
+        ids = {t["id"] for t in json.loads(out)}
+        assert ids == {"T-001", "T-002"}
+
+    def test_combines_with_other_filters(self, srv):
+        srv.store.create(title="A", priority="P1", tags=["backend"])
+        srv.store.create(title="B", priority="P3", tags=["backend"])
+        out = _run(srv.list_tasks(tags="backend", priority="P1"))
+        ids = {t["id"] for t in json.loads(out)}
+        assert ids == {"T-001"}
