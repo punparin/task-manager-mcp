@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Stdio launcher: on SIGTERM/SIGINT, close the server's stdin so it shuts down cleanly instead of being force-terminated after the grace period, and exit `0` rather than `241` after `docker stop`.
+- Stdio launcher: report a signal-terminated server as `128 + signal`, install signal handlers before starting the server, let a repeated signal skip the remaining shutdown wait, and avoid a possible deadlock when a signal arrives mid-wait.
 - Stop and reap the stdio server after client disconnect or termination, including servers that hang during shutdown, so `docker run --rm` containers can be removed.
 
 ## [v0.5.5] - 2026-05-12

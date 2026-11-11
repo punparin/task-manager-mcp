@@ -82,9 +82,12 @@ schema, and use `list_audit(since=, task_id=, limit=)` (MCP) or
 ## Stdio shutdown
 
 `python -m task_manager_mcp` ties the server lifetime to its client connection.
-When stdin closes or the launcher receives SIGTERM/SIGINT, it allows three
-seconds for normal shutdown, then sends SIGTERM and waits another two seconds
-before using SIGKILL if necessary. The launcher reaps the server process before
+When stdin closes or the launcher receives SIGTERM/SIGINT, it closes the
+server's stdin and allows three seconds for normal shutdown, then sends SIGTERM
+and waits another two seconds before using SIGKILL if necessary. A repeated
+SIGTERM/SIGINT skips the remaining wait. If the server is stopped by a signal,
+the launcher exits with the shell convention `128 + signal` (for example 137
+after SIGKILL). The launcher reaps the server process before
 exiting, allowing Docker's `--rm` to remove the container. This also applies to
 the Docker image's default entry point.
 
