@@ -21,7 +21,7 @@ from ..checklist import task_to_dict as _task_to_dict
 from ..checklist import tick as _tick
 from ..comments import append_comment, parse_comments
 from ..deps import blocked_tasks as _blocked_tasks
-from ..deps import dependents_now_workable, is_unblocked
+from ..deps import dependents_now_workable, is_unblocked, next_task_from
 from ..deps import next_task as _next_task
 from ..deps import task_tree as _task_tree
 from ..tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
@@ -177,7 +177,7 @@ def create_app(vault_path: str | Path) -> FastAPI:
         if area:
             results = [t for t in results if t.area and area.lower() in t.area.lower()]
 
-        next_t = _next_task(store, assignee=assignee or None)
+        next_t = next_task_from(all_tasks, assignee=assignee or None)
         next_id = next_t.id if next_t else None
 
         return {
