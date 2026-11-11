@@ -151,6 +151,7 @@
       min-height: 50px;
     }
 
+    .card[hidden] { display: none; }
     .card {
       background: var(--panel-2);
       border: 1px solid var(--border);
@@ -158,6 +159,10 @@
       padding: 10px;
       cursor: grab;
       transition: border-color 0.15s, transform 0.05s;
+      /* Skip layout/paint for cards scrolled out of view: big lanes stay
+         cheap to render, filter and un-filter. */
+      content-visibility: auto;
+      contain-intrinsic-size: auto 96px;
     }
     .card:hover { border-color: var(--accent); }
     .card:active { cursor: grabbing; }
@@ -756,20 +761,54 @@
       const params = new URLSearchParams();
       if (filters.assignee) params.set("assignee", filters.assignee);
       if (filters.priority) params.set("priority", filters.priority);
-      if (filters.project) params.set("project", filters.project);
-      if (filters.area) params.set("area", filters.area);
+      // project / area / search are filtered in the browser (see
+      // applyTextFilters) so typing never waits on the network.
       return params.toString();
     }
 
-    async function loadTasks() {
+    let tasksRequest = null;
+    let lastTasksKey = "";
+
+    // `ifChanged` is for background polls: skip the board rebuild when the
+    // server returned exactly what is already on screen.
+    async function loadTasks({ ifChanged = false } = {}) {
       const q = buildQuery(state.filters);
-      const res = await fetch("/api/tasks" + (q ? "?" + q : ""));
-      if (!res.ok) {
-        toast("failed to load tasks: " + res.status, "error");
-        return;
+      // A newer request supersedes an older one still in flight, so a slow
+      // response can't overwrite the result of a later filter change.
+      if (tasksRequest) tasksRequest.abort();
+      const controller = new AbortController();
+      tasksRequest = controller;
+      let raw;
+      try {
+        const res = await fetch("/api/tasks" + (q ? "?" + q : ""), { signal: controller.signal });
+        if (!res.ok) {
+          toast("failed to load tasks: " + res.status, "error");
+          return;
+        }
+        raw = await res.text();
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        throw e;
+      } finally {
+        if (tasksRequest === controller) tasksRequest = null;
       }
-      const data = await res.json();
+      // Include the date so due-date highlighting still updates after midnight.
+      const key = new Date().toISOString().slice(0, 10) + raw;
+      if (ifChanged && key === lastTasksKey) return;
+      lastTasksKey = key;
+      const data = JSON.parse(raw);
       state.tasks = data.tasks;
+      state.taskById = new Map();
+      for (const t of data.tasks) {
+        state.taskById.set(t.id, t);
+        // Precompute lowercase search text once per load, not per keystroke.
+        // \u0000 keeps a query from matching across two fields.
+        t._search = [t.id, t.title, t.project, t.area, ...(t.tags || [])]
+          .map((x) => (x || "").toLowerCase())
+          .join("\u0000");
+        t._project = (t.project || "").toLowerCase();
+        t._area = (t.area || "").toLowerCase();
+      }
       state.nextTaskId = data.next_task_id;
       render();
     }
@@ -811,7 +850,7 @@
       const unfinished = task.unfinished_blockers || [];
       const blockerPills = unfinished
         .map((id) => {
-          const dep = state.tasks.find((x) => x.id === id);
+          const dep = state.taskById.get(id);
           const titleAttr = dep ? `title="${escapeHtml(dep.title)} · ${dep.status}"` : `title="${id}"`;
           return `<span class="blocker-pill" data-blocker-id="${id}" ${titleAttr}>${id}</span>`;
         })
@@ -870,29 +909,28 @@
       // independently-scrolling .lane-body nodes (overflow-y: auto) and the
       // board's own horizontal scroll. Capture both before we wipe so the
       // user doesn't get yanked back to the top mid-scroll.
+      // Each lane remembers its top visible card, not just a pixel offset:
+      // off-screen cards use an estimated height (content-visibility), so
+      // the same scrollTop can land on a different card after a rebuild.
       const savedLaneScroll = {};
       for (const body of $$(".lane-body")) {
-        savedLaneScroll[body.getAttribute("data-lane-body")] = body.scrollTop;
+        if (!body.scrollTop) continue;
+        const top = body.getBoundingClientRect().top;
+        let anchor = null;
+        for (const card of body.children) {
+          if (card.hidden) continue;
+          const rect = card.getBoundingClientRect();
+          if (rect.bottom > top) {
+            anchor = { id: card.getAttribute("data-id"), offset: rect.top - top };
+            break;
+          }
+        }
+        savedLaneScroll[body.getAttribute("data-lane-body")] = { scrollTop: body.scrollTop, anchor };
       }
       const savedBoardScrollLeft = board.scrollLeft;
-      board.innerHTML = "";
+      // Search / project / area are applied afterwards by applyTextFilters,
+      // which hides cards in place instead of rebuilding the board.
       let visible = state.tasks;
-      const search = (state.filters.search || "").trim().toLowerCase();
-      if (search) {
-        visible = visible.filter((t) => {
-          // ID first (fastest, most common — "T-42" should jump to T-042).
-          if (t.id.toLowerCase().includes(search)) return true;
-          if ((t.title || "").toLowerCase().includes(search)) return true;
-          if ((t.project || "").toLowerCase().includes(search)) return true;
-          if ((t.area || "").toLowerCase().includes(search)) return true;
-          return (t.tags || []).some((tag) => tag.toLowerCase().includes(search));
-        });
-        const c = $("#search-count");
-        c.style.display = "";
-        c.textContent = `${visible.length} match${visible.length === 1 ? "" : "es"}`;
-      } else {
-        $("#search-count").style.display = "none";
-      }
       if (state.filters.hideDone) visible = visible.filter((t) => t.status !== "Done");
       if (state.filters.hideCancelled) visible = visible.filter((t) => t.status !== "Cancelled");
       // "done within last N days" — apply only if Done is being shown.
@@ -912,13 +950,14 @@
         if (byLane[t.status]) byLane[t.status].push(t);
       }
 
+      const lanesHtml = [];
       for (const lane of LANES) {
         if (state.filters.hideDone && lane === "Done") continue;
         if (state.filters.hideCancelled && lane === "Cancelled") continue;
         const tasks = byLane[lane];
         // Sort: priority asc, due asc, id asc
+        const pri = (x) => parseInt(x.priority.slice(1), 10) || 99;
         tasks.sort((a, b) => {
-          const pri = (x) => parseInt(x.priority.slice(1), 10) || 99;
           if (pri(a) !== pri(b)) return pri(a) - pri(b);
           const ad = a.due || "9999-12-31";
           const bd = b.due || "9999-12-31";
@@ -935,8 +974,10 @@
               ${tasks.map(cardHtml).join("")}
             </div>
           </div>`;
-        board.insertAdjacentHTML("beforeend", html);
+        lanesHtml.push(html);
       }
+      board.innerHTML = lanesHtml.join("");
+      applyTextFilters();
 
       // Restore scroll positions on the freshly-built nodes. Synchronous
       // assignment first (works in most cases), then re-apply after the
@@ -947,7 +988,14 @@
       const restoreScroll = () => {
         for (const body of $$(".lane-body")) {
           const prev = savedLaneScroll[body.getAttribute("data-lane-body")];
-          if (prev) body.scrollTop = prev;
+          if (!prev) continue;
+          const card = prev.anchor && body.querySelector(`.card[data-id="${prev.anchor.id}"]`);
+          if (card && !card.hidden) {
+            const delta = card.getBoundingClientRect().top - body.getBoundingClientRect().top;
+            body.scrollTop += delta - prev.anchor.offset;
+          } else {
+            body.scrollTop = prev.scrollTop;
+          }
         }
         board.scrollLeft = savedBoardScrollLeft;
       };
@@ -955,7 +1003,39 @@
       requestAnimationFrame(restoreScroll);
 
       attachDragHandlers();
-      attachClickHandlers();
+    }
+
+    // Hide cards that don't match the search / project / area boxes, and
+    // update the lane and match counts. Cheap enough to run on every keystroke
+    // because it never rebuilds the board or re-creates drag handlers.
+    function applyTextFilters() {
+      const search = (state.filters.search || "").trim().toLowerCase();
+      const project = state.filters.project.trim().toLowerCase();
+      const area = state.filters.area.trim().toLowerCase();
+      let matches = 0;
+      for (const body of $$(".lane-body")) {
+        let shown = 0;
+        for (const card of body.children) {
+          const t = state.taskById.get(card.getAttribute("data-id"));
+          const ok =
+            !!t &&
+            (!search || t._search.includes(search)) &&
+            (!project || t._project.includes(project)) &&
+            (!area || t._area.includes(area));
+          if (card.hidden === ok) card.hidden = !ok;
+          if (ok) shown++;
+        }
+        matches += shown;
+        const count = body.parentElement.querySelector(".lane-count");
+        if (count) count.textContent = shown;
+      }
+      const c = $("#search-count");
+      if (search) {
+        c.style.display = "";
+        c.textContent = `${matches} match${matches === 1 ? "" : "es"}`;
+      } else {
+        c.style.display = "none";
+      }
     }
 
     function attachDragHandlers() {
@@ -979,27 +1059,24 @@
       }
     }
 
-    function attachClickHandlers() {
-      for (const card of $$(".card")) {
-        card.addEventListener("click", () => {
-          openPanel(card.getAttribute("data-id"));
-        });
+    // One delegated listener for the whole board, installed once, so a
+    // rebuild doesn't have to attach a listener to every card.
+    function onBoardClick(e) {
+      // "tree →" link jumps to the graph view focused on this task.
+      const link = e.target.closest(".tree-link");
+      if (link) {
+        state.focusTaskId = link.getAttribute("data-show-tree");
+        setView("graph");
+        return;
       }
       // Blocker pills open the side panel for that blocker, not the parent card.
-      for (const pill of $$(".blocker-pill")) {
-        pill.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openPanel(pill.getAttribute("data-blocker-id"));
-        });
+      const pill = e.target.closest(".blocker-pill");
+      if (pill) {
+        openPanel(pill.getAttribute("data-blocker-id"));
+        return;
       }
-      // "tree →" link jumps to the graph view focused on this task.
-      for (const link of $$(".tree-link")) {
-        link.addEventListener("click", (e) => {
-          e.stopPropagation();
-          state.focusTaskId = link.getAttribute("data-show-tree");
-          setView("graph");
-        });
-      }
+      const card = e.target.closest(".card");
+      if (card) openPanel(card.getAttribute("data-id"));
     }
 
     async function openPanel(taskId) {
@@ -1591,14 +1668,18 @@
         state.filters.priority = e.target.value;
         loadTasks();
       });
-      $("#filter-project").addEventListener("input", (e) => {
-        state.filters.project = e.target.value;
-        loadTasks();
-      });
-      $("#filter-area").addEventListener("input", (e) => {
-        state.filters.area = e.target.value;
-        loadTasks();
-      });
+      $("#board").addEventListener("click", onBoardClick);
+      // Text filters only show/hide existing cards, so they apply on the
+      // next frame instead of waiting on a debounce or a server round trip.
+      let textFilterFrame = 0;
+      const onTextFilter = (key) => (e) => {
+        markInteraction();
+        state.filters[key] = e.target.value;
+        cancelAnimationFrame(textFilterFrame);
+        textFilterFrame = requestAnimationFrame(applyTextFilters);
+      };
+      $("#filter-project").addEventListener("input", onTextFilter("project"));
+      $("#filter-area").addEventListener("input", onTextFilter("area"));
       $("#filter-hide-done").addEventListener("change", (e) => {
         state.filters.hideDone = e.target.checked;
         render();
@@ -1612,13 +1693,7 @@
         state.filters.doneDays = Number.isFinite(v) && v >= 0 ? v : 0;
         render();
       });
-      let searchDebounce;
-      $("#filter-search").addEventListener("input", (e) => {
-        markInteraction();
-        state.filters.search = e.target.value;
-        clearTimeout(searchDebounce);
-        searchDebounce = setTimeout(render, 120);
-      });
+      $("#filter-search").addEventListener("input", onTextFilter("search"));
       for (const t of $$(".tab")) {
         t.addEventListener("click", () => setView(t.dataset.view));
       }
@@ -1639,13 +1714,13 @@
       setInterval(() => {
         if (!state.autoRefresh || state.isDragging || document.hidden) return;
         if (Date.now() - state.lastInteractionAt < INTERACTION_QUIET_MS) return;
-        loadTasks();
+        loadTasks({ ifChanged: true });
       }, POLL_INTERVAL_MS);
 
       // Refocusing the webview should feel instant, not wait for the next tick.
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden && state.autoRefresh && !state.isDragging) {
-          loadTasks();
+          loadTasks({ ifChanged: true });
           if (state.view === "graph") loadGraph();
         }
       });

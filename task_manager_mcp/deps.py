@@ -67,7 +67,13 @@ def next_task(store: TaskStore, assignee: Optional[str] = None) -> Optional[Task
     - all blocked_by tasks are Done or Cancelled
     - sorted by: priority (P1 first) → due (sooner first) → created (older first)
     """
-    all_tasks = {t.id: t for t in store.all()}
+    return next_task_from({t.id: t for t in store.all()}, assignee)
+
+
+def next_task_from(
+    all_tasks: dict[str, Task], assignee: Optional[str] = None
+) -> Optional[Task]:
+    """`next_task` over tasks already loaded, to avoid re-reading the vault."""
     candidates = []
     target = canonical_assignee(assignee) if assignee else None
     for t in all_tasks.values():

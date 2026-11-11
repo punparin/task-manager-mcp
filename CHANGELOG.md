@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Explorer: search, project and area filters no longer lag on large boards. They now hide and show existing cards instead of rebuilding the board, and project/area filtering happens in the browser instead of sending a request on every keystroke. Off-screen cards skip layout, auto-refresh skips the rebuild when nothing changed, and `/api/tasks` reads the vault once per request instead of twice. With 1,000 tasks on a throttled CPU, a keystroke went from ~350–480 ms to ~25–35 ms.
 - Stop and reap the stdio server after client disconnect or termination, including servers that hang during shutdown, so `docker run --rm` containers can be removed.
 
 ## [v0.5.5] - 2026-05-12
