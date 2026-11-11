@@ -79,6 +79,18 @@ See [`task-format.md`](./task-format.md#status-history) for the
 schema, and use `list_audit(since=, task_id=, limit=)` (MCP) or
 `GET /api/audit` (Explorer) to read it.
 
+## Stdio shutdown
+
+`python -m task_manager_mcp` ties the server lifetime to its client connection.
+When stdin closes or the launcher receives SIGTERM/SIGINT, it allows three
+seconds for normal shutdown, then sends SIGTERM and waits another two seconds
+before using SIGKILL if necessary. The launcher reaps the server process before
+exiting, allowing Docker's `--rm` to remove the container. This also applies to
+the Docker image's default entry point.
+
+Separate active clients can still start separate containers. A disconnect does
+not stop containers belonging to other clients.
+
 ## Register with your MCP client
 
 The server speaks stdio MCP, so it works with any MCP-capable client.

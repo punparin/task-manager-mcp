@@ -1,4 +1,6 @@
 """Allow running as `python -m task_manager_mcp`."""
-from .server import mcp
 
-mcp.run()
+from .stdio import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
