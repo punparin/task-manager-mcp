@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Epics: big-picture goals that group tasks. Each epic is an `E-xxx.md` file in the tasks folder with a goal, success criteria, priority, target date and colour. Tasks join one through a new `epic:` field. New tools `create_epic`, `list_epics`, `get_epic` and `update_epic` report progress rolled up from the epic's tasks, with `ready_to_close` and `overdue` hints. Epic status is set by hand, and closing an epic leaves its tasks alone.
+- `create_task`, `update_task` and `bulk_update` accept `epic` (`"-"` clears it in `update_task`), `list_tasks` filters by `epic` (`"none"` for tasks outside any epic), and `next_task` can be scoped to one epic. `tick_item` ticks an epic's success criteria, and `validate_dependencies` flags tasks pointing at a missing epic and closed epics with open tasks.
+
 ### Fixed
 - Stdio launcher: on SIGTERM/SIGINT, close the server's stdin so it shuts down cleanly instead of being force-terminated after the grace period, and exit `0` rather than `241` after `docker stop`.
 - Stdio launcher: report a signal-terminated server as `128 + signal`, install signal handlers before starting the server, let a repeated signal skip the remaining shutdown wait, and avoid a possible deadlock when a signal arrives mid-wait.

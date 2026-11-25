@@ -14,6 +14,7 @@ priority: P2           # P1, P2, P3, P4
 assignee: agent        # me, agent (or any actor from .task-manager/config.yml)
 project: "[[API Migration]]"
 area: Backend
+epic: E-003            # optional; see "Epics" below
 created: 2026-04-09
 due: 2026-04-15
 last_status_change: 2026-05-07   # auto-stamped on every transition
@@ -32,6 +33,54 @@ Add token-bucket rate limiting to the v3 API endpoints.
 
 The legacy `assignee: claude` value is always accepted as an alias for
 `agent`, so vaults written before the rename still round-trip.
+
+## Epics
+
+An epic is a big-picture goal that groups tasks. Each epic is one
+markdown file, `E-001.md`, in the same folder as the tasks, so it
+follows `TASK_MANAGER_TASKS_FOLDER` and sits next to its tasks in
+Obsidian. Epic files are never read as tasks.
+
+```yaml
+---
+type: epic
+id: E-003
+title: API v3 migration
+status: Active          # Planned, Active, Done, Cancelled
+priority: P1
+project: "[[API Migration]]"   # optional; a project can hold several epics
+due: 2026-12-31         # target date
+color: sky              # optional: violet, amber, lime, sky, pink, orange, teal, slate or #rrggbb
+created: 2026-11-25
+completed: 2026-12-20   # stamped when the epic moves to Done
+last_status_change: 2026-11-25
+tags: [backend]
+---
+
+## Goal
+Every v2 client can move to v3 without code changes beyond the base URL.
+
+## Success criteria
+- [ ] All v2 endpoints have a v3 equivalent
+- [ ] Rate limiting matches v2 behaviour
+```
+
+A task joins an epic through its `epic:` field (one epic per task). The
+epic must exist when the task is written.
+
+- **Progress is derived on read**, never stored: done / total tasks,
+  where Cancelled tasks don't count toward the total, plus a count per
+  status. `list_epics` and `get_epic` also report `ready_to_close`
+  (every task finished but the epic still open) and `overdue` (target
+  date passed while Planned or Active).
+- **Status is set by hand** with `update_epic`. An epic never closes on
+  its own, because the work you know about isn't always all the work.
+  Closing an epic leaves its tasks untouched and lists any still open.
+  Status changes go to the same audit log as tasks.
+- **Success criteria** are a checklist in the body. Tick them with
+  `tick_item("E-003", index)`.
+- **Colour** is used for chips and swimlanes in the Explorer. Without
+  `color:`, one is picked from the palette by the epic's number.
 
 ## Comments
 

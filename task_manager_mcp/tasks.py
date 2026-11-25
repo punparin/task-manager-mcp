@@ -77,6 +77,10 @@ def load_actors(vault: Path) -> list[str]:
 
 
 TASK_ID_RE = re.compile(r"^T-(\d+)$")
+# Epics live in the tasks folder as E-xxx.md. Defined here (not in
+# epics.py) so TaskStore can validate a task's `epic:` without a
+# circular import.
+EPIC_ID_RE = re.compile(r"^E-(\d+)$")
 DEFAULT_TASKS_FOLDER = "tasks"
 
 
@@ -89,6 +93,7 @@ class Task:
     assignee: str = "me"
     project: Optional[str] = None
     area: Optional[str] = None
+    epic: Optional[str] = None
     due: Optional[str] = None
     created: str = ""
     completed: Optional[str] = None
@@ -126,6 +131,8 @@ class Task:
             post.metadata["project"] = self.project
         if self.area:
             post.metadata["area"] = self.area
+        if self.epic:
+            post.metadata["epic"] = self.epic
         post.metadata["created"] = self.created
         if self.due:
             post.metadata["due"] = self.due
@@ -151,6 +158,7 @@ class Task:
             assignee=str(m.get("assignee", "me")),
             project=m.get("project"),
             area=m.get("area"),
+            epic=str(m["epic"]) if m.get("epic") else None,
             due=str(m["due"]) if m.get("due") else None,
             created=str(m.get("created", "")),
             completed=str(m["completed"]) if m.get("completed") else None,
@@ -229,7 +237,8 @@ class TaskStore:
 
     def get(self, task_id: str) -> Task:
         path = self._path_for(task_id)
-        if not path.exists():
+        # Epic files (E-xxx.md) share the folder; never read one as a task.
+        if not TASK_ID_RE.match(task_id) or not path.exists():
             raise FileNotFoundError(f"Task not found: {task_id}")
         return Task.from_markdown(path.read_text(encoding="utf-8"))
 
@@ -243,7 +252,12 @@ class TaskStore:
             path.unlink()
 
     def exists(self, task_id: str) -> bool:
-        return self._path_for(task_id).exists()
+        return bool(TASK_ID_RE.match(task_id)) and self._path_for(task_id).exists()
+
+    def validate_epic(self, epic_id: str) -> None:
+        """Raise ValueError unless `epic_id` names an existing epic file."""
+        if not EPIC_ID_RE.match(epic_id) or not (self.tasks_dir / f"{epic_id}.md").exists():
+            raise ValueError(f"Epic not found: {epic_id}")
 
     def create(
         self,
@@ -257,8 +271,11 @@ class TaskStore:
         tags: Optional[list[str]] = None,
         blocked_by: Optional[list[str]] = None,
         body: str = "",
+        epic: Optional[str] = None,
     ) -> Task:
         self.validate_assignee(assignee)
+        if epic:
+            self.validate_epic(epic)
         # Validate blocked_by tasks exist
         if blocked_by:
             for dep in blocked_by:
@@ -273,6 +290,7 @@ class TaskStore:
             assignee=assignee,
             project=project,
             area=area,
+            epic=epic,
             due=due,
             tags=tags or [],
             blocked_by=blocked_by or [],
@@ -284,6 +302,8 @@ class TaskStore:
     def update(self, task_id: str, **updates) -> Task:
         if "assignee" in updates:
             self.validate_assignee(updates["assignee"])
+        if updates.get("epic"):
+            self.validate_epic(updates["epic"])
         task = self.get(task_id)
         for key, value in updates.items():
             if hasattr(task, key):
