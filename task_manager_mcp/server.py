@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 from datetime import date
+from typing import Optional
 
 from fastmcp import FastMCP
 
@@ -22,7 +23,23 @@ from .deps import (
 )
 from .deps import next_task as _next_task
 from .deps import task_tree as _task_tree
-from .tasks import VALID_PRIORITY, VALID_STATUS, TaskStore, canonical_assignee
+from .epics import (
+    EPIC_STATUS,
+    OPEN_EPIC_STATUS,
+    EpicStore,
+    epic_body,
+    epic_to_dict,
+    open_tasks,
+    sort_epics,
+    validate_color,
+)
+from .tasks import (
+    EPIC_ID_RE,
+    VALID_PRIORITY,
+    VALID_STATUS,
+    TaskStore,
+    canonical_assignee,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +57,23 @@ store = TaskStore(vault_path)
 mcp = FastMCP("task-manager", instructions=_AGENT_INSTRUCTIONS)
 
 
+def _epics() -> EpicStore:
+    # Built per call so it always follows the current `store`.
+    return EpicStore(store)
+
+
+def _closed_epic_note(epic_id: str) -> str:
+    """A warning to append when a task is filed under a closed epic."""
+    epic = _epics().get(epic_id)
+    if epic.status in OPEN_EPIC_STATUS:
+        return ""
+    return (
+        f"\n\nNote: {epic_id} ({epic.title}) is {epic.status}. "
+        "The task was filed there anyway; reopen the epic with "
+        "update_epic if this is follow-up work."
+    )
+
+
 # ── Create / Read / Update ─────────────────────────────────────────────
 
 
@@ -55,6 +89,7 @@ async def create_task(
     tags: str = "",
     blocked_by: str = "",
     body: str = "",
+    epic: str = "",
 ) -> str:
     """Create a new task. Auto-generates ID (T-001, T-002, ...).
 
@@ -68,7 +103,14 @@ async def create_task(
     tags: Comma-separated tags (optional)
     blocked_by: Comma-separated task IDs (e.g., 'T-001,T-002')
     body: Task description / acceptance criteria in markdown (optional)
+    epic: Epic ID this task belongs to, e.g. 'E-001' (optional; see list_epics)
     """
+    epic = epic.strip()
+    if epic:
+        try:
+            store.validate_epic(epic)
+        except ValueError as e:
+            return f"ERROR: {e}"
     tags_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     deps_list = [d.strip() for d in blocked_by.split(",") if d.strip()] if blocked_by else []
 
@@ -91,8 +133,12 @@ async def create_task(
         tags=tags_list,
         blocked_by=deps_list,
         body=body,
+        epic=epic or None,
     )
-    return f"Created {task.id}: {task.title}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+    msg = f"Created {task.id}: {task.title}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+    if epic:
+        msg += _closed_epic_note(epic)
+    return msg
 
 
 @mcp.tool()
@@ -102,6 +148,7 @@ async def list_tasks(
     priority: str = "",
     project: str = "",
     tags: str = "",
+    epic: str = "",
 ) -> str:
     """List tasks with optional filters.
 
@@ -110,6 +157,7 @@ async def list_tasks(
     priority: filter by P1/P2/P3/P4
     project: filter by project name (partial match)
     tags: comma-separated; task must carry every listed tag (exact match, case-sensitive)
+    epic: epic ID (e.g. 'E-001'), or 'none' for tasks that aren't in any epic
     """
     tasks = store.all()
     if status:
@@ -125,6 +173,11 @@ async def list_tasks(
         wanted = {t.strip() for t in tags.split(",") if t.strip()}
         if wanted:
             tasks = [t for t in tasks if wanted.issubset(set(t.tags))]
+    if epic:
+        if epic.strip().lower() == "none":
+            tasks = [t for t in tasks if not t.epic]
+        else:
+            tasks = [t for t in tasks if t.epic == epic.strip().upper()]
 
     if not tasks:
         return "No tasks match those filters."
@@ -154,6 +207,7 @@ async def update_task(
     body: str = "",
     blocked_by: str = "",
     completed: str = "",
+    epic: str = "",
 ) -> str:
     """Update fields on an existing task. Only provided fields are changed.
 
@@ -167,6 +221,8 @@ async def update_task(
     - completed="2026-05-07" sets the completion date; "-" clears it.
       complete_task is still the right tool for marking Done — this
       parameter exists for cleanup and backfill, not the happy path.
+    - epic="E-001" files the task under that epic; "-" removes it from
+      its epic.
     """
     updates = {}
     if title:
@@ -209,6 +265,15 @@ async def update_task(
         updates["blocked_by"] = new_blockers
     if completed:
         updates["completed"] = None if completed.strip() == "-" else completed
+    if epic:
+        if epic.strip() == "-":
+            updates["epic"] = None
+        else:
+            try:
+                store.validate_epic(epic.strip())
+            except ValueError as e:
+                return f"ERROR: {e}"
+            updates["epic"] = epic.strip()
 
     prior = store.get(task_id)
     transitioned_to_done = (
@@ -224,6 +289,8 @@ async def update_task(
 
     task = store.update(task_id, **updates)
     msg = f"Updated {task.id}\n{json.dumps(task_to_dict(task), indent=2, default=str)}"
+    if updates.get("epic") and updates["epic"] != prior.epic:
+        msg += _closed_epic_note(updates["epic"])
 
     # Mirror the complete_task side effect for the *self* case: if the
     # caller modified blocked_by (without explicitly setting status) and
@@ -264,7 +331,7 @@ async def update_task(
 
 _BULK_UPDATE_FIELDS = {
     "title", "status", "priority", "assignee",
-    "project", "area", "due", "tags", "body",
+    "project", "area", "due", "tags", "body", "epic",
 }
 
 
@@ -274,7 +341,7 @@ async def bulk_update(updates: list[dict]) -> str:
 
     Each entry must contain `task_id` plus any subset of the fields
     `update_task` accepts (title, status, priority, assignee, project,
-    area, due, tags, body). Unknown keys are rejected so a typo doesn't
+    area, due, tags, body, epic). Unknown keys are rejected so a typo doesn't
     silently no-op.
 
     Updates run in order; per-task failures are reported but do NOT roll
@@ -325,17 +392,22 @@ async def tick_item(task_id: str, index: int, checked: bool = True) -> str:
     the whole body via update_task. The progress rollup (done/total/pct)
     is recomputed and returned.
 
-    task_id: Task ID (e.g. T-042)
+    task_id: Task ID (e.g. T-042), or an epic ID (e.g. E-001) to tick
+        one of the epic's success criteria
     index: 1-based position of the checklist item within the body
     checked: True to mark `[x]`, False to mark `[ ]` (default True)
     """
-    task = store.get(task_id)
+    epics = _epics()
+    task = epics.get(task_id) if EPIC_ID_RE.match(task_id) else store.get(task_id)
     try:
         new_body, progress = _tick_item(task.body, index, checked)
     except ValueError as e:
         return f"ERROR: {e}"
     task.body = new_body
-    store.save(task)
+    if EPIC_ID_RE.match(task_id):
+        epics.save(task)
+    else:
+        store.save(task)
     state = "checked" if checked else "unchecked"
     item_text = progress.items[index - 1].text
     return (
@@ -512,17 +584,226 @@ async def block_task(task_id: str, reason: str) -> str:
     return f"Blocked {task_id}: {reason}"
 
 
+# ── Epics ──────────────────────────────────────────────────────────────
+
+# Order of task groups in get_epic: work in flight first.
+_EPIC_TASK_GROUPS = ["In Progress", "Ready", "Blocked", "Backlog", "Done", "Cancelled"]
+
+
+def _split_tags(tags: str) -> list[str]:
+    return [t.strip() for t in tags.split(",") if t.strip()]
+
+
+@mcp.tool()
+async def create_epic(
+    title: str,
+    goal: str = "",
+    success_criteria: str = "",
+    priority: str = "P3",
+    status: str = "Planned",
+    project: str = "",
+    due: str = "",
+    color: str = "",
+    tags: str = "",
+    body: str = "",
+) -> str:
+    """Create an epic: a big-picture goal that groups tasks. Auto-generates ID (E-001, ...).
+
+    Only create epics when the user asks for one. File tasks under an
+    epic with create_task(epic=...) or update_task(epic=...).
+
+    title: Epic title (required)
+    goal: Why this matters / what done looks like (written under ## Goal)
+    success_criteria: One criterion per line; saved as a checklist under ## Success criteria
+    priority: P1-P4 (default P3)
+    status: Planned or Active (default Planned)
+    project: Project name or [[wikilink]] (optional; a project can hold several epics)
+    due: Target date YYYY-MM-DD (optional)
+    color: Colour for the Explorer: violet, amber, lime, sky, pink, orange, teal, slate, or #rrggbb (optional; picked automatically)
+    tags: Comma-separated tags (optional)
+    body: Extra markdown appended after the goal and criteria (optional)
+    """
+    if status not in OPEN_EPIC_STATUS:
+        return f"ERROR: A new epic must be Planned or Active, not {status!r}"
+    if color:
+        try:
+            validate_color(color)
+        except ValueError as e:
+            return f"ERROR: {e}"
+    full_body = epic_body(goal, success_criteria)
+    if body.strip():
+        full_body = (full_body + "\n" + body.strip() + "\n").lstrip()
+    try:
+        epic = _epics().create(
+            title=title,
+            status=status,
+            priority=priority,
+            project=project or None,
+            due=due or None,
+            color=color or None,
+            tags=_split_tags(tags),
+            body=full_body,
+        )
+    except ValueError as e:
+        return f"ERROR: {e}"
+    out = epic_to_dict(epic, [], include_body=True)
+    return f"Created {epic.id}: {epic.title}\n{json.dumps(out, indent=2, default=str)}"
+
+
+@mcp.tool()
+async def list_epics(status: str = "") -> str:
+    """List epics with progress rolled up from their tasks.
+
+    status: Planned, Active, Done or Cancelled; 'open' for Planned + Active;
+    empty for all. Sorted Active → Planned → Done → Cancelled, then by
+    priority and target date.
+
+    Each epic carries `progress`: done/total tasks and pct (Cancelled
+    tasks don't count), a per-status breakdown, blocked count,
+    `ready_to_close` (every task finished but the epic is still open)
+    and `overdue`.
+    """
+    epics = _epics().all()
+    if status == "open":
+        epics = [e for e in epics if e.status in OPEN_EPIC_STATUS]
+    elif status:
+        if status not in EPIC_STATUS:
+            return f"ERROR: status must be one of {EPIC_STATUS} or 'open'"
+        epics = [e for e in epics if e.status == status]
+    if not epics:
+        return "No epics match those filters."
+    tasks = store.all()
+    return json.dumps(
+        [epic_to_dict(e, tasks) for e in sort_epics(epics)], indent=2, default=str
+    )
+
+
+@mcp.tool()
+async def get_epic(epic_id: str) -> str:
+    """Get an epic: goal, success criteria, progress, its tasks grouped by status, and its next workable task.
+
+    Read this before starting work on a task in an epic, so the work
+    fits the bigger goal.
+    """
+    try:
+        epic = _epics().get(epic_id)
+    except FileNotFoundError as e:
+        return f"ERROR: {e}"
+    tasks = store.all()
+    by_id = {t.id: t for t in tasks}
+    out = epic_to_dict(epic, tasks, include_body=True)
+    groups: dict[str, list[dict]] = {}
+    for t in tasks:
+        if t.epic != epic.id:
+            continue
+        unfinished = [
+            d for d in t.blocked_by
+            if d in by_id and by_id[d].status not in {"Done", "Cancelled"}
+        ]
+        groups.setdefault(t.status, []).append({
+            "id": t.id,
+            "title": t.title,
+            "priority": t.priority,
+            "assignee": t.assignee,
+            "due": t.due,
+            "unfinished_blockers": unfinished,
+        })
+    out["tasks"] = {s: groups[s] for s in _EPIC_TASK_GROUPS if s in groups}
+    nxt = _next_task(store, epic=epic.id)
+    out["next_task"] = {"id": nxt.id, "title": nxt.title, "assignee": nxt.assignee} if nxt else None
+    return json.dumps(out, indent=2, default=str)
+
+
+@mcp.tool()
+async def update_epic(
+    epic_id: str,
+    title: str = "",
+    status: str = "",
+    priority: str = "",
+    project: str = "",
+    due: str = "",
+    color: str = "",
+    tags: str = "",
+    body: str = "",
+) -> str:
+    """Update an epic. Only provided fields change; pass "-" to clear project, due, color or tags.
+
+    status: Planned, Active, Done or Cancelled. Epics never close on their
+    own: when list_epics shows `ready_to_close`, suggest closing it to the
+    user. Closing an epic leaves its tasks alone; any still open are
+    listed in the reply. Moving to Done stamps `completed`; reopening
+    clears it.
+    """
+    epics = _epics()
+    try:
+        epic = epics.get(epic_id)
+    except FileNotFoundError as e:
+        return f"ERROR: {e}"
+
+    if status and status not in EPIC_STATUS:
+        return f"ERROR: Invalid status. Must be one of {EPIC_STATUS}"
+    if priority and priority not in VALID_PRIORITY:
+        return f"ERROR: Invalid priority. Must be one of {VALID_PRIORITY}"
+    if color and color != "-":
+        try:
+            validate_color(color)
+        except ValueError as e:
+            return f"ERROR: {e}"
+
+    def opt(value: str) -> Optional[str]:
+        return None if value.strip() == "-" else value
+
+    if title:
+        epic.title = title
+    if priority:
+        epic.priority = priority
+    if project:
+        epic.project = opt(project)
+    if due:
+        epic.due = opt(due)
+    if color:
+        epic.color = opt(color)
+    if tags:
+        epic.tags = [] if tags.strip() == "-" else _split_tags(tags)
+    if body:
+        epic.body = body
+
+    old_status = epic.status
+    if status and status != old_status:
+        epic.last_status_change = record_transition(
+            store.vault, epic.id, old_status, status, "agent",
+        )
+        epic.status = status
+        if status == "Done":
+            epic.completed = epic.completed or date.today().isoformat()
+        else:
+            epic.completed = None
+    epics.save(epic)
+
+    tasks = store.all()
+    msg = f"Updated {epic.id}\n{json.dumps(epic_to_dict(epic, tasks), indent=2, default=str)}"
+    if status in {"Done", "Cancelled"} and status != old_status:
+        left = open_tasks(epic.id, tasks)
+        if left:
+            msg += (
+                f"\n\n{len(left)} task(s) in {epic.id} are still open and were left unchanged: "
+                + ", ".join(f"{t.id} ({t.status})" for t in left)
+            )
+    return msg
+
+
 # ── Workflow ───────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-async def next_task(assignee: str = "agent") -> str:
+async def next_task(assignee: str = "agent", epic: str = "") -> str:
     """Get the next workable task: status=Ready, dependencies satisfied, sorted by priority/due/created.
 
     Default assignee is 'agent' so an MCP agent can ask 'what's next for me?'.
     Tasks written before the rename with `assignee: claude` are matched too.
+    epic: only pick from this epic's tasks (e.g. 'E-001').
     """
-    task = _next_task(store, assignee=assignee or None)
+    task = _next_task(store, assignee=assignee or None, epic=epic.strip() or None)
     if not task:
         return "No workable tasks. All Ready tasks may be blocked, or none assigned."
     out = task_to_dict(task, include_body=True)
@@ -641,11 +922,15 @@ async def validate_dependencies() -> str:
     - `blocked_by` entries pointing to Cancelled tasks (graph hygiene —
       the dep is technically satisfied, but the link is rot worth surfacing)
     - `completed:` set on a task whose status isn't Done (state drift)
+    - Tasks pointing at a missing epic, and Done/Cancelled epics that
+      still have open tasks (epics)
     """
     all_tasks = {t.id: t for t in store.all()}
+    all_epics = {e.id: e for e in _epics().all()}
 
     cycles_seen: set[tuple[str, ...]] = set()
     graph_issues: list[str] = []
+    epic_issues: list[str] = []
     workflow_issues: list[str] = []
     state_drift: list[str] = []
 
@@ -675,6 +960,18 @@ async def validate_dependencies() -> str:
                 f"{tid} has completed={task.completed} but status={task.status}"
             )
 
+        if task.epic and task.epic not in all_epics:
+            epic_issues.append(f"{tid} references missing epic: {task.epic}")
+
+    for eid, e in all_epics.items():
+        if e.status not in OPEN_EPIC_STATUS:
+            left = open_tasks(eid, list(all_tasks.values()))
+            if left:
+                epic_issues.append(
+                    f"{eid} is {e.status} but has open tasks: "
+                    + ", ".join(t.id for t in left)
+                )
+
     sections: list[str] = []
     if graph_issues:
         sections.append("Graph:\n  " + "\n  ".join(graph_issues))
@@ -682,6 +979,8 @@ async def validate_dependencies() -> str:
         sections.append("Workflow:\n  " + "\n  ".join(workflow_issues))
     if state_drift:
         sections.append("State drift:\n  " + "\n  ".join(state_drift))
+    if epic_issues:
+        sections.append("Epics:\n  " + "\n  ".join(epic_issues))
 
     if not sections:
         return "Vault is valid. No graph, workflow, or state-drift issues."

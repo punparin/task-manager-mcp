@@ -116,6 +116,10 @@ skip T-042 and return T-040 first.
   enums, file I/O, actor validation
 - `task_manager_mcp/deps.py` — dependency resolver, cycle detection,
   `next_task` algorithm, tree rendering
+- `task_manager_mcp/epics.py` — `Epic` dataclass and `EpicStore`
+  (`E-xxx.md` files in the tasks folder), progress rollup from the
+  epic's tasks. Like checklist progress, the rollup is derived on read
+  and never stored.
 - `task_manager_mcp/checklist.py` — body checklist parser
   (`- [ ]` / `- [x]`), progress rollup, `tick()` mutation. Progress is
   derived on read — never persisted in frontmatter — so the body is

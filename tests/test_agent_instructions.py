@@ -31,5 +31,8 @@ def test_instructions_reference_load_bearing_tools():
         "validate_dependencies",
         "list_audit",
         "bulk_update",
+        "list_epics",
+        "get_epic",
+        "update_epic",
     ):
         assert phrase in INSTRUCTIONS, phrase

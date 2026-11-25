@@ -50,6 +50,23 @@ Operating rules:
   carries its latest transition date in the `last_status_change`
   frontmatter field.
 
+## Epics
+
+- An epic (`E-001`) is a big-picture goal that groups tasks through
+  their `epic:` field. "How is X going?" / "what's left for X?" →
+  `get_epic` (goal, progress, tasks by status, next task) or
+  `list_epics(status="open")` for the overview.
+- When you create a task, check `list_epics(status="open")` and pass
+  `epic=` when it clearly belongs to one; ask if unsure. Don't create
+  epics unless the user asks for one.
+- Before starting a task that has an `epic`, read `get_epic` so the
+  work fits the epic's goal. `next_task(epic="E-001")` picks work
+  inside one epic.
+- Epics never close themselves. When `list_epics` shows
+  `ready_to_close`, tell the user and offer
+  `update_epic(epic_id, status="Done")`. Closing an epic leaves its
+  tasks untouched.
+
 ## Workflow flow
 
 ```
@@ -120,7 +137,9 @@ complete_task(T-042)          ← announces unblocked downstream tasks
 
 Tasks live in `<vault>/tasks/` (override with `TASK_MANAGER_TASKS_FOLDER`).
 Frontmatter: `type, id, title, status, priority, assignee, project, area,
-created, due, completed, last_status_change, blocked_by, tags`.
+epic, created, due, completed, last_status_change, blocked_by, tags`.
+Epics are `E-xxx.md` files in the same folder (`type: epic`, statuses
+`Planned`, `Active`, `Done`, `Cancelled`).
 Body has `## What to do`, `## Acceptance criteria` (checklist), and
 `## Comments`. Body is the source of truth for checklists and
 comments — they are never mirrored to frontmatter; progress

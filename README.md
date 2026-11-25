@@ -59,6 +59,8 @@ Want a Kanban board for the same tasks? Run the
 - **Cycle detection** — prevents impossible task graphs
 - **Status workflow** — Backlog → Ready → In Progress → Done (with
   Blocked / Cancelled escapes)
+- **Epics** — group tasks under a bigger goal (`E-001`) and see each
+  epic's progress, rolled up from its tasks
 - **Auto-promote on unblock** — when you complete a task, Backlog
   dependents whose last blocker just cleared flip to Ready in place,
   and the agent tells you exactly what opened up
@@ -68,7 +70,7 @@ Want a Kanban board for the same tasks? Run the
   `<vault>/.task-manager/audit.jsonl` with `last_status_change`
   mirrored into frontmatter for cheap recency filtering
 
-See [`docs/tools.md`](./docs/tools.md) for the full 18-tool reference.
+See [`docs/tools.md`](./docs/tools.md) for the full 22-tool reference.
 
 ## Documentation
 

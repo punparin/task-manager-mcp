@@ -58,12 +58,15 @@ def is_unblocked(task: Task, all_tasks: dict[str, Task]) -> bool:
     return True
 
 
-def next_task(store: TaskStore, assignee: Optional[str] = None) -> Optional[Task]:
+def next_task(
+    store: TaskStore, assignee: Optional[str] = None, epic: Optional[str] = None
+) -> Optional[Task]:
     """Return the next workable task.
 
     Selection criteria:
     - status == 'Ready'
     - assignee matches (if provided)
+    - belongs to `epic` (if provided)
     - all blocked_by tasks are Done or Cancelled
     - sorted by: priority (P1 first) → due (sooner first) → created (older first)
     """
@@ -74,6 +77,8 @@ def next_task(store: TaskStore, assignee: Optional[str] = None) -> Optional[Task
         if t.status != "Ready":
             continue
         if target and canonical_assignee(t.assignee) != target:
+            continue
+        if epic and t.epic != epic:
             continue
         if not is_unblocked(t, all_tasks):
             continue
